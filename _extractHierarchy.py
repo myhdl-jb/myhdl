@@ -42,7 +42,7 @@ from myhdl._structured import StructType
 
 
 # tracing the poor man's way
-TRACING_JB = True
+TRACING_JB = False
 if TRACING_JB:
     from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect
 else:
@@ -485,4 +485,4 @@ def _inferArgs(arg):
 #     tracejbdedent()
     return c
 
-from myhdl._array import Array
+from myhdl._structured import Array

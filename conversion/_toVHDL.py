@@ -62,7 +62,7 @@ from myhdl._structured import Array, StructType
 TRACING_JB = True
 DO_INSPECT = False
 if TRACING_JB:
-    from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect, tracenode
+    from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect, tracenode, logjbwr
 else:
     def tracejb( a, b = None):
         pass
@@ -73,6 +73,8 @@ else:
     def logjbinspect(a, b= None, c = False):
         pass
     def tracenode( a = None, b = None):
+        pass
+    def logjbwr( a ):
         pass
 
 _version = myhdl.__version__.replace('.','')
@@ -947,7 +949,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
 #         tracejb( "_ConvertVisitor: write" )
         self.buf.write("%s" % arg)
         self.line += "%s" % arg
-#         logjbwr( 'line: {}' .format(self.line))
+        logjbwr( 'line: {}' .format(self.line))
 #         tracejbdedent()
 
     def writeline(self, nr=1):
@@ -2026,6 +2028,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             s = "%s%s%s" % (pre, s, suf)
 
         elif n in self.tree.argnames:
+            logjb( self.tree.argnames, 'self.tree.argnames')
             assert n in self.tree.symdict
             obj = self.tree.symdict[n]
             logjbinspect(obj, 'obj - self.tree.argnames', DO_INSPECT)
@@ -2957,15 +2960,16 @@ def maxType(o1, o2):
 def inferVhdlObj(obj, attr = None):
     tracejb( "inferVhdlObj" )
     logjbinspect( obj , 'obj' , True)
+    logjb( isinstance(obj, Array), 'isArray')
     vhd = None
-    if (isinstance(obj, _Signal) and obj._type is intbv) or \
+    if (isinstance(obj, _Signal) and isinstance(obj._val, intbv)) or \
        isinstance(obj, intbv):
         ls = getattr(obj, 'lenStr', False)
         if obj.min is None or obj.min < 0:
             vhd = vhd_signed(size=len(obj), lenStr=ls)
         else:
             vhd = vhd_unsigned(size=len(obj), lenStr=ls)
-    elif (isinstance(obj, _Signal) and obj._type is bool) or \
+    elif (isinstance(obj, _Signal) and isinstance(obj._val, bool)) or \
          isinstance(obj, bool):
         vhd = vhd_std_logic()
     elif (isinstance(obj, _Signal) and isinstance(obj._val, EnumItemType)) or\
@@ -2992,14 +2996,18 @@ def inferVhdlObj(obj, attr = None):
             logjb( obj, 'inferring Array')
             element = obj.element
 
-        if (isinstance(element, _Signal) and element._type is intbv):
-            ls = getattr(element, 'lenStr', False)
-            if element.min is not None and element.min < 0:
-                vhd = vhd_signed(size=len(element), lenStr=ls)
+        if isinstance(element, _Signal):
+            if  isinstance(element._val, intbv):
+                ls = getattr(element, 'lenStr', False)
+                if element.min is not None and element.min < 0:
+                    vhd = vhd_signed(size=len(element), lenStr=ls)
+                else:
+                    vhd = vhd_unsigned(size=len(element), lenStr=ls)
+            elif isinstance(element._val, bool):
+                vhd = vhd_std_logic()
             else:
-                vhd = vhd_unsigned(size=len(element), lenStr=ls)
-        elif (isinstance(element, _Signal) and element._type is bool):
-            vhd = vhd_std_logic()
+                pass
+            
         else:
             # defaulting?
             pass
@@ -3010,13 +3018,13 @@ def inferVhdlObj(obj, attr = None):
         if attr is not None:
             refs = vars( obj )
             element = refs[attr]
-            if (isinstance(element, _Signal) and element._type is intbv):
+            if isinstance(element, _Signal) and isinstance( element._val, intbv):
                 ls = getattr(element, 'lenStr', False)
                 if element.min is not None and element.min < 0:
                     vhd = vhd_signed(size=len(element), lenStr=ls)
                 else:
                     vhd = vhd_unsigned(size=len(element), lenStr=ls)
-            elif (isinstance(element, _Signal) and element._type is bool):
+            elif isinstance(element, _Signal) and isinstance(element._val, bool):
                 vhd = vhd_std_logic()
             else:
                 # defaulting?

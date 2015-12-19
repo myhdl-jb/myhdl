@@ -1,6 +1,5 @@
 from __future__ import absolute_import
 import ast
-import itertools
 from types import FunctionType
 
 from myhdl._util import _flatten
@@ -8,8 +7,7 @@ from myhdl._enum import EnumType
 from myhdl._Signal import SignalType
 from myhdl import ExtractHierarchyError
 
-from myhdl._array import Array
-from myhdl._structured import StructType
+from myhdl._structured import Array, StructType
 
 # tracing the poor man's way
 from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect

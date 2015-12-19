@@ -27,7 +27,6 @@ from __future__ import absolute_import
 from __future__ import print_function
 
 import collections
-import copy
 import math
 
 from myhdl._intbv import intbv
@@ -35,17 +34,17 @@ from myhdl._Signal import Signal, _Signal
 # from myhdl._simulator import _signals, _siglist, _futureEvents, now
 from myhdl._simulator import _siglist
 from myhdl._compat import integer_types
-from myhdl._ShadowSignal import ConcatSignal
+# from myhdl._ShadowSignal import ConcatSignal
 from myhdl._misc import m1Dinfo
 
 
-def widthr( v ):
-    if v < 0:
+def widthr( value ):
+    if value < 0:
         #using signed numbers requires double
-        tv = -v * 2
+        tv = -value * 2
     else :
         # unsigned
-        tv = v
+        tv = value
 
     if tv < 2:
         raise ValueError("Need at least 2")
@@ -326,17 +325,17 @@ class Array( object ):
 
     def _setNextVal(self, val):
 
-        def setnext( a, v):        
+        def setnext( a, value):        
             if isinstance(a[0], (list, Array)):
                 for i, ia in enumerate( a ):
-                    setnext( ia, v[i] )
+                    setnext( ia, value[i] )
             else:
-                if isinstance(v[0], _Signal):
+                if isinstance(value[0], _Signal):
                     for i, s  in enumerate( a ):
-                        s._setNextVal( v[i].val )
+                        s._setNextVal( value[i].val )
                 else:
                     for i, s  in enumerate( a ):
-                        s._setNextVal( v[i] )  
+                        s._setNextVal( value[i] )  
 
         setnext( self, val )
 
@@ -587,13 +586,13 @@ if __name__ == '__main__':
 # #             self.r = Signal( intbv(0)[width:])
 # # 
 # #                     
-# #         def torecord(self, v):
+# #         def torecord(self, value):
 # #             ''' we 'reformat' a vector into an interface/record '''
 # # #             trWIDTH_PIXEL = self.WIDTH_PIXEL
 # #             trWIDTH_PIXEL = len(self.r)
 # #             @myhdl.always_comb
 # #             def torecord():
-# #                 lv = v
+# #                 lv = value
 # #                 self.b.next  = lv[(0+1) * trWIDTH_PIXEL : 0 * trWIDTH_PIXEL]
 # #                 self.g.next  = lv[(1+1) * trWIDTH_PIXEL : 1 * trWIDTH_PIXEL]
 # #                 self.g.next  = lv[(2+1) * trWIDTH_PIXEL : 2 * trWIDTH_PIXEL]

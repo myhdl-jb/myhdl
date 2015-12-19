@@ -144,8 +144,7 @@ from ._traceSignals import traceSignals
 from myhdl import conversion
 from .conversion import toVerilog
 from .conversion import toVHDL
-from ._array import Array
-from ._structured import StructType
+from ._structured import Array, StructType
 from ._tristate import Tristate
 
 

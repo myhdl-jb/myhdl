@@ -90,4 +90,4 @@ def m1Dinfo( l ):
 #     ls = [item for item in reversed(sizes)] 
     return levels, sizes, totalelements, element       
 
-from myhdl._array import Array
+from myhdl._structured import Array

@@ -36,8 +36,7 @@ from myhdl._resolverefs import _AttrRefTransformer
 from myhdl._visitors import _SigNameVisitor
 
 from myhdl._misc import m1Dinfo
-from myhdl._array import Array
-from myhdl._structured import StructType
+from myhdl._structured import Array, StructType
 
 
 # # tracing the poor man's way

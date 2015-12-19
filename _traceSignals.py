@@ -37,8 +37,7 @@ from myhdl._extractHierarchy import _HierExtr
 from myhdl import TraceSignalsError
 from myhdl._Signal import _Signal
 from myhdl._ShadowSignal import _TristateSignal, _TristateDriver
-from myhdl._array import Array
-from myhdl._structured import StructType
+from myhdl._structured import Array, StructType
 from myhdl._intbv import intbv
 
 # tracing the poor man's way
