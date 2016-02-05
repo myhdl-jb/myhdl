@@ -55,13 +55,12 @@ from myhdl.conversion._toVHDLPackage import _package
 from myhdl._compat import integer_types, class_types, StringIO
 from myhdl._ShadowSignal import _TristateSignal, _TristateDriver
 from myhdl._misc import m1Dinfo
-# from myhdl._array import Array
 from myhdl._structured import Array, StructType
 
 # tracing the poor man's way
-TRACING_JB = True
+from myhdl.tracejbdef import TRACEJBDEFS
 DO_INSPECT = False
-if TRACING_JB:
+if TRACEJBDEFS['_toVHDL']:
     from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect, tracenode, logjbwr
 else:
     def tracejb( a, b = None):
@@ -122,6 +121,7 @@ class _ToVHDLConvertor(object):
                  "use_clauses",
                  "architecture",
                  "std_logic_ports",
+                 "no_initial_values"
                  )
 
     def __init__(self):
@@ -136,12 +136,12 @@ class _ToVHDLConvertor(object):
         self.use_clauses = None
         self.architecture = "MyHDL"
         self.std_logic_ports = False
+        self.no_initial_values = False
 
     def __call__(self, func, *args, **kwargs):
 #         tracejb('_ToVHDLConvertor call' )
         global _converting
         if _converting:
-#             logjb('converting?')
             return func(*args, **kwargs) # skip
         else:
             # clean start
@@ -160,10 +160,6 @@ class _ToVHDLConvertor(object):
         try:
             logjb( name, 'name', True)
             logjb( func, 'func')
-#             for item in args:
-#                 print( repr(item), end = ', ' )            
-#             for item in kwargs:
-#                 print( repr(item), end = ', ' )
             logjb( '_HierExtr')
             h = _HierExtr(name, func, *args, **kwargs)
         finally:
@@ -176,9 +172,9 @@ class _ToVHDLConvertor(object):
         compDecls = self.component_declarations
         useClauses = self.use_clauses
 
-#         vpath = os.path.join(directory, name + ".vhd")
-        vpath = os.path.join(directory, name + ".tmp")
-        vfile = open(vpath, 'w')
+        vpath = os.path.join(directory, name + ".vhd")
+        tpath = os.path.join(directory, name + ".tmp")
+        vfile = open(tpath, 'w')
         ppath = os.path.join(directory, "pck_myhdl_%s.vhd" % _shortversion)
         pfile = None
 #        # write MyHDL package always during development, as it may change
@@ -193,52 +189,34 @@ class _ToVHDLConvertor(object):
         _enumTypeSet.clear()
         _enumPortTypeSet.clear()
 
-#         logjb( h.top, 'h.top')
         arglist = _flatten(h.top)
-#         logjb( "Flattened Top ==================================" )
-#         logjb( arglist , 'arglist')
-#         for arg in arglist:
-#             logjbinspect( arg , 'arg in arglist', False)
-
         _checkArgs(arglist)
-#         logjb( "Checked Args ==================================" )
-#         logjb( "Analyzing Gens  ==================================" )
         genlist = _analyzeGens(arglist, h.absnames)
-#         logjbinspect( genlist , 'genlist' ,True)
-#         for item in genlist:
-#             logjb(item)
-#         logjb( "Analyzed Gens  ==================================" )
-#         logjb( "Analyzing Sigs  ==================================" )
         siglist, memlist = _analyzeSigs(h.hierarchy, hdl='VHDL')
-#         logjb( "Analyzed Sigs ==================================" )
-        # print h.top
-#         logjb( "AnnotateTypes(genlist)  ==================================" )
         _annotateTypes(genlist)
-#         logjb( genlist , 'genlist' )
-#         logjb( "Annotated Types ==================================" )
-
         ### infer interface
-#         logjb( "Analyzing Top Function ==================================" )
         top_inst = h.hierarchy[0]
         intf = _analyzeTopFunc(top_inst, func, *args, **kwargs)
         intf.name = name
-#         logjb( "Analyzed Top Function ==================================" )
         # sanity checks on interface
         for portname in intf.argnames:
-#             logjb( portname, 'portname')
+            logjb( portname, 'portname')
             s = intf.argdict[portname]
-            if s._name is None:
-                raise ToVHDLError(_error.ShadowingSignal, portname)
-            if s._inList:
-                raise ToVHDLError(_error.PortInList, portname)
+            if  isinstance(s, StructType):
+                pass
+            else :
+                if s._name is None:
+                    raise ToVHDLError(_error.ShadowingSignal, portname)
+#             if s._inList:
+#                 raise ToVHDLError(_error.PortInList, portname)
             # add enum types to port-related set
-            if isinstance(s._val, EnumItemType):
-                obj = s._val._type
-                if obj in _enumTypeSet:
-                    _enumTypeSet.remove(obj)
-                    _enumPortTypeSet.add(obj)
-                else:
-                    assert obj in _enumPortTypeSet
+                if isinstance(s._val, EnumItemType):
+                    obj = s._val._type
+                    if obj in _enumTypeSet:
+                        _enumTypeSet.remove(obj)
+                        _enumPortTypeSet.add(obj)
+                    else:
+                        assert obj in _enumPortTypeSet
 
         doc = _makeDoc(inspect.getdoc(func))
 
@@ -271,9 +249,8 @@ class _ToVHDLConvertor(object):
 
         # postedit the .vhd file
         if len( suppressedWarnings ) > 0:
-            fi = open( vpath, 'r')
-            npath = os.path.join(directory, name + ".vhd")
-            fo = open( npath, 'w')
+            fi = open( tpath, 'r')
+            fo = open( vpath, 'w')
             # edit ...
             # read the temporary VHDL file
             filines = fi.read().split('\n')
@@ -290,13 +267,12 @@ class _ToVHDLConvertor(object):
             # selectively write the lines to the output
             
             fi.close()
-            os.remove(vpath)
+            os.remove(tpath)
             fo.close()
         else:
-            npath = os.path.join(directory, name + ".vhd")
-            if os.path.exists( npath ):
-                os.remove( npath )
-            os.rename( vpath, npath )
+            if os.path.exists( vpath ):
+                os.remove( vpath )
+            os.rename( tpath, vpath )
 
         ### clean-up properly ###
         self._cleanup(siglist)
@@ -373,17 +349,16 @@ def _writeCustomPackage(f, intf):
     print(file=f)
     print("end package pck_%s;" % intf.name, file=f)
     print(file=f)
-#     tracejbdedent()
 
 portConversions = []
 suppressedWarnings = []
 
 def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPorts):
-#     tracejb("_ToVHDLConvertor: " + '_writeModuleHeader')
+    tracejb("_ToVHDLConvertor: " + '_writeModuleHeader')
     print("library IEEE;", file=f)
-    print("use IEEE.std_logic_1164.all;", file=f)
-    print("use IEEE.numeric_std.all;", file=f)
-    print("use std.textio.all;", file=f)
+    print("    use IEEE.std_logic_1164.all;", file=f)
+    print("    use IEEE.numeric_std.all;", file=f)
+    print("    use std.textio.all;", file=f)
     print(file=f)
     if lib != "work":
         print("library %s;" % lib, file=f)
@@ -391,13 +366,13 @@ def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPor
         f.write(useClauses)
         f.write("\n")
     else:
-        print("use %s.pck_myhdl_%s.all;" % (lib, _shortversion), file=f)
+        print("    use %s.pck_myhdl_%s.all;" % (lib, _shortversion), file=f)
     print(file=f)
     if needPck:
-        print("use %s.pck_%s.all;" % (lib, intf.name), file=f)
+        print("    use %s.pck_%s.all;" % (lib, intf.name), file=f)
         print(file=f)
     print("entity %s is" % intf.name, file=f)
-#     logjb( stdLogicPorts , 'stdLogicPorts')
+    logjb( stdLogicPorts , 'stdLogicPorts')
     del portConversions[:]
     pl = []
     if intf.argnames:
@@ -405,50 +380,55 @@ def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPor
         c = ''
         for portname in intf.argnames:
             s = intf.argdict[portname]
-#             logjbinspect(s, 's', True)
-#             f.write("%s" % c)
-            pl.append("%s" % c)
-            c = ';'
-            # change name to convert to std_logic, or
-            # make sure signal name is equal to its port name
-            convertPort = False
-            if stdLogicPorts and s._type is intbv:
-                s._name = portname + "_num"
-                convertPort = True
-                for sl in s._slicesigs:
-                    sl._setName( 'VHDL' )
+            logjb(s, 's')
+            if isinstance(s, StructType):
+                # expand the structure
+                # and add assignments
+                # taking care of unsigned <> std_logic_vector conversions
+                expandStructType(c, stdLogicPorts, pl, portname, s)
             else:
-                s._name = portname
-            r = _getRangeString(s)
-            pt = st = _getTypeString(s)
-            if convertPort:
-                pt = "std_logic_vector"
-            if s._driven:
-                if s._read :
-#                     f.write("\n        %s: inout %s%s" % (portname, pt, r))
-                    pl.append("\n        %s: inout %s%s" % (portname, pt, r))
-                    if not isinstance(s, _TristateSignal):
-                        warnings.warn("%s: %s" % (_error.OutputPortRead, portname),
+                pl.append("%s" % c)
+                c = ';'
+                # change name to convert to std_logic, or
+                # make sure signal name is equal to its port name
+                convertPort = False
+                if stdLogicPorts and s._type is intbv:
+                    s._name = portname + "_num"
+                    convertPort = True
+                    s._used = True  # 03-01-2016 expanding a StructType obj does miss out on some port signals
+                    for sl in s._slicesigs:
+                        sl._setName( 'VHDL' )
+                else:
+                    s._name = portname
+
+                r = _getRangeString(s)
+                pt = st = _getTypeString(s)
+                if convertPort:
+                    pt = "std_logic_vector"
+                if s._driven:
+                    if s._read :
+                        pl.append("\n        %s : inout %s%s" % (portname, pt, r))
+                        if not isinstance(s, _TristateSignal):
+                            warnings.warn("%s: %s" % (_error.OutputPortRead, portname),
+                                          category=ToVHDLWarning
+                                          )
+                    else:
+                        pl.append("\n        %s : out %s%s" % (portname, pt, r))
+                    if convertPort:
+                        portConversions.append("    %s <= %s(%s);" % (portname, pt, s._name))
+                        s._read = True
+                else:
+                    if not s._read and not s._suppresswarning:
+                        warnings.warn("%s: %s" % (_error.UnusedPort, portname),
                                       category=ToVHDLWarning
                                       )
-                else:
-#                     f.write("\n        %s: out %s%s" % (portname, pt, r))
-                    pl.append("\n        %s: out %s%s" % (portname, pt, r))
-                if convertPort:
-                    portConversions.append("    %s <= %s(%s);" % (portname, pt, s._name))
-                    s._read = True
-            else:
-                if not s._read:
-                    warnings.warn("%s: %s" % (_error.UnusedPort, portname),
-                                  category=ToVHDLWarning
-                                  )
+    
+                    pl.append("\n        %s : in %s%s" % (portname, pt, r))
+                    if convertPort:
+                        portConversions.append("    %s <= %s(%s);" % (s._name, st, portname))
+                        s._driven = True
 
-#                 f.write("\n        %s: in %s%s" % (portname, pt, r))
-                pl.append("\n        %s: in %s%s" % (portname, pt, r))
-                if convertPort:
-                    portConversions.append("    %s <= %s(%s);" % (s._name, st, portname))
-                    s._driven = True
-        for l in sortalign( pl , sort = False):
+        for l in sortalign( pl , sort = False, port = True):
             f.write( l )
         f.write("\n        );\n")
     print("end entity %s;" % intf.name, file=f)
@@ -456,15 +436,61 @@ def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPor
     print(file=f)
     print("architecture %s of %s is" % (arch, intf.name), file=f)
     print(file=f)
-#     tracejbdedent()
+    tracejbdedent()
+
+expandlevel = 2
+def expandStructType(c, stdLogicPorts, pl, name, obj):
+    for attr, attrobj in vars(obj).items():
+        if isinstance(attrobj, _Signal):
+            pl.append("%s" % c)
+            c = ';'
+            convertPort = False
+            portname = ''.join((name, attr))
+            r = _getRangeString(attrobj)
+            pt = st = _getTypeString(attrobj)
+            if stdLogicPorts:
+                convertPort = True
+                if isinstance(attrobj._val, intbv):
+                    pt = 'std_logic_vector'
+            if attrobj._driven:
+                if attrobj.read:
+                    pl.append("\n        %s : inout %s%s" % (portname, pt, r))
+                    warnings.warn("%s: %s" % (_error.OutputPortRead, portname),
+                                  category=ToVHDLWarning
+                                  )
+                else:
+                    pl.append("\n        %s : out %s%s" % (portname, pt, r))
+                if convertPort:
+                    if isinstance(attrobj._val, intbv):
+                        portConversions.append("    %s <= %s(%s);" % (portname, pt, attrobj._name))
+                    else:
+                        portConversions.append("    %s <= %s;" % (portname, attrobj._name))
+
+                    attrobj._read = True
+            elif attrobj.read:
+                pl.append("\n        %s : in %s%s" % (portname, pt, r))
+                if convertPort:
+                    if isinstance(attrobj._val, intbv):
+                        portConversions.append("    %s <= %s(%s);" % (attrobj._name, st, portname))
+                    else:
+                        portConversions.append("    %s <= %s;" % (attrobj._name, portname))
+                    attrobj._driven = True
+            else:
+                # silently discard neither driven nor read members
+                pass
+
+        elif isinstance(attrobj, myhdl.EnumType):
+            pass
+        elif isinstance(attrobj, StructType):
+            if expandlevel > 1:
+                # can assume is yet another interface ...
+                expandStructType(c, stdLogicPorts, pl, name + '_' + attr, attrobj)
+            else :
+                pass
 
 
 def _writeFuncDecls(f):
-#     tracejb('_writeFuncDecls')
-#     logjbinspect(f, 'f', True)
-#     tracejbdedent()
     return
-    # print >> f, package
 
 def _writeConstants(f, memlist):
     tracejb( "_ToVHDLConvertor: _writeConstants: " )
@@ -486,29 +512,58 @@ def _writeConstants(f, memlist):
     tracejbdedent()
 
 def expandconstant( c  ):
-    if isinstance(c[0], (list, Array)):
+    if isinstance(c, StructType):
+        pass
+    elif isinstance(c[0], (list, Array)):
         size = c._sizes[0] if isinstance(c, Array) else len( c )
         s = ''
         for i in range( size ):
-            s += '( '
-            s += expandconstant(c[i])
-            s += ' )'
+            s = ''.join((s, '(', expandconstant(c[i]), ')'))
             if i != size - 1:
-                s += ',\n'
+                s = ''.join((s, ',\n' ))
         return s
     else:
         # lowest (= last) level of m1D
         size = c._sizes[0] if isinstance(c, Array) else len( c )
         s = ''
+        if isinstance(c[0], StructType):
+            pass
+        elif isinstance(c[0]._val, bool):
+            for i in range( size ):
+                s = ''.join((s, '{}, '.format('\'1\'' if c[i] else '\'0\'' )))
+        else:
+            # intbv
+            for i in range( size ):
+                s = ''.join((s, ' to_{}signed( {}, {} ){}'.format( '' if c[i]._min < 0 else 'un', c[i], c[i]._nrbits, ', ' ) ))
+        return s[:-2]
+
+def expandarray( c  ):
+    if isinstance(c[0], (list, Array)):
+        size = c._sizes[0] if isinstance(c, Array) else len( c )
+        s = ''
         for i in range( size ):
-#             s +=  ' "{}"'.format( bin( c[i] , c[i]._nrbits ))
-            if c[i]._min < 0:
-                s +=  ' to_signed( {}, {} )'.format( c[i], c[i]._nrbits)
-            else:
-                s +=  ' to_unsigned( {}, {} )'.format( c[i], c[i]._nrbits)
+            s = ''.join((s, '(', expandarray(c[i]), ')'))
             if i != size - 1:
-                s += ','
+                s = ''.join((s, ',\n' ))
         return s
+    else:
+        # lowest (= last) level of m1D
+        size = c._sizes[0] if isinstance(c, Array) else len( c )
+        s = ''
+        if isinstance(c[0], StructType):
+            pass
+        elif isinstance(c[0]._val, bool):
+            for i in range( size ):
+                s = ''.join((s, '{}, '.format('\'1\'' if c[i]._val else '\'0\'' )))
+        else:
+            # intbv
+            for i in range( size ):
+                s = ''.join((s, 'b"{}", '.format(bin(c[i]._val, c[i]._nrbits, True))))
+
+#TODO:  cut long lines
+        
+        # remove trailing ', '
+        return s[:-2]
      
 class _typedef( object ):
     def __init__(self ):
@@ -528,7 +583,6 @@ class _typedef( object ):
             self.VHDLcodes.append( VHDLcode )
             
     def write(self, f):
-#         print('typdefs.write')
         # first 'sort' 
         nrtd = len(self.names)
         idx = 0
@@ -540,7 +594,7 @@ class _typedef( object ):
                     self.names.insert( idx , self.names.pop( btidx ))
                     self.basetypes.insert( idx , self.basetypes.pop( btidx ))
                     self.VHDLcodes.insert( idx , self.VHDLcodes.pop( btidx ))
-                    # stay at this index and test wheter this name now has a 'predecessor'
+                    # stay at this index and test whether this name now has a 'predecessor'
                 else:
                     idx += 1
 
@@ -549,10 +603,78 @@ class _typedef( object ):
 
         # then write
         for i,l in enumerate( self.VHDLcodes ):
-#             print( self.names[i], self.basetypes[i])
             f.write(l)
         
         
+def addstructuredtypedef( obj ):
+    ''' adds the typedefs for a StructType
+        possibly descending down 
+    '''
+    basetype = None
+    if isinstance( obj, StructType):
+        refs = vars(obj)
+        for key in refs:
+            if isinstance(refs[key], (StructType, Array)):
+                basetype = addstructuredtypedef(refs[key])
+        # all lower structured types are now defined
+#         rname = '\\' + obj.ref() + '\\'
+        rname = obj.ref()
+        lines = "    type {} is record\n".format( rname )
+        # follow the sequencelist if any
+        if hasattr(obj, 'sequencelist')and obj.sequencelist:
+            refs = []
+            for key in obj.sequencelist:
+                if hasattr(obj, key):
+                    refs.append( key )
+
+        else:
+            refs = vars(obj)
+
+        entries = []
+        for key in refs:
+            mobj = vars(obj)[key]
+            if isinstance(mobj , _Signal):
+                entries.append( "        {} : {}{};\n".format(key, _getTypeString(mobj), _getRangeString(mobj) ))
+            elif isinstance( mobj,  Array):
+#                 print(mobj.ref())
+                entries.append( "        {} : a{};\n".format(key, mobj.ref())) ###
+            elif isinstance( mobj, StructType):
+#                 entries.append( "        {} : \\{}\\;\n".format(key, mobj.ref()))
+                entries.append( "        {} : {};\n".format(key, mobj.ref()))
+
+        # align-format the contents
+        for l in sortalign( entries, sort = False):
+            lines += l
+        lines += "    end record ;\n\n"
+        typedefs.add( rname, None, lines)
+        basetype = rname
+
+    elif isinstance(obj, Array):
+        if isinstance(obj.element, StructType):
+            p = basetype = addstructuredtypedef(obj.element)
+        else:
+            if isinstance(obj.element, _Signal):
+                mobj = obj.element._val
+            else:
+                mobj = obj.element
+                
+            if isinstance(mobj, intbv): #m.elObj._nrbits is not None:
+                basetype = '{}{}'.format(_getTypeString(obj.element)[0], obj.element._nrbits)
+            elif isinstance( mobj, bool): #mobj._type == bool :
+                basetype = 'b'
+            else:
+                raise AssertionError
+            p = '{}{}'.format( _getTypeString(obj.element), _getRangeString(obj.element))
+
+        for _, size in  enumerate( reversed( obj._sizes )):
+            o = basetype
+            basetype = 'a{}_{}'.format( size, o)
+            typedefs.add( basetype, o, "    type {} is array(0 to {}-1) of {};\n" .format(basetype, size, p))
+            # next level if any
+            p = basetype
+    return basetype
+
+
 def _writeTypeDefs(f, memlist):
     tracejb("_ToVHDLConvertor: " +  "_writeTypeDefs: " )
     f.write("\n")
@@ -562,60 +684,33 @@ def _writeTypeDefs(f, memlist):
     enumused = []
     for t in sortedList:
         logjb( t )
-#         print( t._name , end = ', ')
         if t._name not in enumused:
             enumused.append( t._name )
             tt = "%s\n" % t._toVHDL()
             f.write( tt )
-#     print( enumused )
     f.write("\n")
     # then write the structured types
     for m in memlist:
-        if not m._used:
+        if not m._used or m.usagecount == 0:
             continue
         logjb( m.name, 'm', True)
         logjb( m.mem, 'm.mem')
         # infer attributes for the case of named signals in a list
+#         print( 'inferattrs', m.name, m._driven, m._read, repr( m ))
         inferattrs( m, m.mem)
-#         if not m._driven and not m._read:
-#         if not m._driven:
-#             continue
         logjb(m.name , 'm.name')
-        #TODO: write all the typedefs to a set, then sort it in the right order to fulfil all dependencies
+#         print( 'returned' , m.name, m._driven, m._read)
+            
         if m.depth == 1 and isinstance(m.elObj, StructType):
                 # a 'single' StructType
-#                 rname = m.elObj.__class__.__name__
-                rname = m.elObj.ref()
-#                 if rname not in typedefs:
-#                     f.write("type {} is record\n".format( rname ))
-#                     refs = vars(m.elObj)
-#                     for k in refs:
-#                         if isinstance( refs[k], _Signal):                
-#                             f.write("  {} : {}{};\n".format(k, _getTypeString(refs[k]), _getRangeString( refs[k]) ))
-#                         elif isinstance( refs[k], StructType):
-#                             raise ValueError( "StructType in StructType not (yet) supported")
-#                         elif isinstance( refs[k], Array):
-#                             raise ValueError( "Array in StructType not (yet) supported")
-#                     f.write("  end record ;\n")
-#                     typedefs.append( rname )
-                l = "type {} is record\n".format( rname )
-                refs = vars(m.elObj)
-#                 rb = []
-                for k in refs:
-                    if isinstance( refs[k], _Signal):
-#                         rb.append( repr(refs[k]))                
-                        l += "  {} : {}{};\n".format(k, _getTypeString(refs[k]), _getRangeString( refs[k]) )
-                    elif isinstance( refs[k], StructType):
-                        raise ValueError( "StructType in StructType not (yet) supported")
-                    elif isinstance( refs[k], Array):
-                        raise ValueError( "Array in StructType not (yet) supported")
-                l += "  end record ;\n"
-                typedefs.add( rname, None, l)    
-                basetype = rname
+            basetype = addstructuredtypedef(m.elObj)
+        elif isinstance(m.mem, Array):
+            basetype = addstructuredtypedef(m.mem)
+            
         else:
+            # it is a (multi-dimensional) list
             if isinstance(m.elObj, StructType):
                 p = basetype = m.elObj.ref()
-#                 p =  _getTypeString(m.elObj)
             else:
                 if isinstance(m.elObj, _Signal):
                     mobj = m.elObj._val
@@ -633,9 +728,6 @@ def _writeTypeDefs(f, memlist):
             for _, size in  enumerate( reversed( m._sizes )):
                 o = basetype
                 basetype = 'a{}_{}'.format( size, o)
-#                 if basetype not in typedefs:
-#                     typedefs.append( basetype )
-#                     f.write("type {} is array(0 to {}-1) of {};\n" .format(basetype, size, p))
                 typedefs.add( basetype, o, "    type {} is array(0 to {}-1) of {};\n" .format(basetype, size, p))
                 # next level if any
                 p = basetype
@@ -653,81 +745,136 @@ functiondefs = []
 def _writeSigDecls(f, intf, siglist, memlist):
     tracejb("_ToVHDLConvertor: " +  "_writeSigDecls: " )
     del constwires[:]
-#     del typedefs[:]
     typedefs.clear()
     del functiondefs[:]
     sl = []
-#     logjb(siglist, 'siglist')
+    logjb(siglist, 'siglist')
     for s in siglist:
-#         logjbinspect(s, 's', True)
         if not s._used:
+            logjb( s, 'not used')
             continue
         if s._name in intf.argnames:
+            logjb(s._name , 's._name in intf.argnames')
             continue
-#         logjb(s._name , 's._name')
+        logjb(s)
         r = _getRangeString(s)
         p = _getTypeString(s)
-        if s._driven:
-            if not s._read and not isinstance(s, _TristateDriver):
-                if not s._suppresswarning:
-                    warnings.warn("%s: %s" % (_error.UnreadSignal, s._name),
-                                  category=ToVHDLWarning
-                                  )
-                else:
-                    suppressedWarnings.append( s )
-            # the following line implements initial value assignments
-            # print >> f, "%s %s%s = %s;" % (s._driven, r, s._name, int(s._val))
-#             print("    signal %s : %s%s;" % (s._name, p, r), file=f)
-            sl.append("    signal %s : %s%s;" % (s._name, p, r))
-        elif s._read:
-            # the original exception
-            # raise ToVHDLError(_error.UndrivenSignal, s._name)
-            # changed to a warning and a continuous assignment to a wire
-            warnings.warn("%s: %s" % (_error.UndrivenSignal, s._name),
-                          category=ToVHDLWarning
-                          )
-            constwires.append(s)
-#             print("    signal %s : %s%s;" % (s._name, p, r), file=f)
-            sl.append("    signal %s : %s%s;" % (s._name, p, r))
-            
+        if s._driven or s._read:
+            if not toVHDL.no_initial_values: 
+                if isinstance(s._val, bool):
+                    sl.append("    signal %s : %s%s := '%s';" % (s._name, p, r, 1 if s._val else 0))
+                elif isinstance(s._val, intbv):
+                    sl.append("    signal %s : %s%s := b\"%s\";" % (s._name, p, r, bin(s._val, s._nrbits, True)))
+                elif isinstance(s._val, EnumItemType):
+                    sl.append("    signal %s : %s%s := %s;" % (s._name, p, r, s._val))
+            else:
+                sl.append("    signal %s : %s%s;" % (s._name, p, r))
+                
+                
+            if s._driven:
+                if not s._read and not isinstance(s, _TristateDriver):
+                    if not s._suppresswarning:
+                        warnings.warn("%s: %s" % (_error.UnreadSignal, s._name),
+                                      category=ToVHDLWarning
+                                      )
+                    else:
+                        suppressedWarnings.append( s )
+                
+            elif s._read:
+                warnings.warn("%s: %s" % (_error.UndrivenSignal, s._name),
+                              category=ToVHDLWarning
+                              )
+                constwires.append(s)
+
 
     for m in memlist:
-        if not m._used:
+        if not m._used or m.usagecount == 0:
             continue
 
-        # infer attributes for the case of named signals in a list
-#         inferattrs( m, m.mem)
-#         if (not m._driven and not m._read) or (not m._driven and m._read):
-        logjb(m.name , 'm.name', True)
-#         if not m._driven and not m._read :
         if not m._driven:
+            logjb(m.name , 'm.name is not driven')
             continue
+        
+        if not m._read:
+            logjb(m.name , 'm.name is not driven nor read')
+            continue
+            
+
         logjb(m.name , ' is driven')
-#         print("    signal {} : {};" .format(m.name, m._typedef ), file=f)
-        sl.append("    signal {} : {};" .format(m.name, m._typedef ))
-                      
+        if isinstance(m.mem, Array):
+            if m.mem._initialised:
+                sl.append("    signal {} : {} := ({});" .format(m.name, m._typedef, expandarray(m.mem)))
+            else:
+                sl.append("    signal {} : {};" .format(m.name, m._typedef ))
+        elif isinstance(m.mem, list):
+            # assuming it is is a single list
+            # try to shortcut the initialisation
+#             tval = m.mem[0]
+#             for i, sig in enumerate(m.mem):
+#                 if sig._val != tval:
+#                     break
+#             if i == len(m.mem) - 1:
+#                 if tval._min < 0:
+#                     rval =  'to_signed( {}, {} )'.format( tval._val, tval._nrbits)
+#                 else :
+#                     rval =  'to_unsigned( {}, {} )'.format( tval._val, tval._nrbits)
+# 
+#                 sl.append("    signal {} : {} := (others => {});" .format(m.name, m._typedef, rval))
+#             else:
+                # the full works
+            if not toVHDL.no_initial_values:
+                sl.append("    signal {} : {} := ({});" .format(m.name, m._typedef, expandarray(m.mem)))
+            else:
+                sl.append("    signal {} : {};" .format(m.name, m._typedef))
+                
+        elif isinstance(m.mem, StructType):
+            if not toVHDL.no_initial_values: 
+                sl.append("    signal {} : {} := ({});" .format(m.name, m._typedef, m.mem.initial('vhdl') ))
+            else:
+                sl.append("    signal {} : {};" .format(m.name, m._typedef ))
+        else:
+            pass
+      
 
     for l in sortalign( sl , sort = True ):
         print( l , file = f)
     print(file=f)
     tracejbdedent()
-    
 
-def sortalign( sl , sort = False):
-        # align the colons  
+
+def sortalign( sl , sort = False, port = False):
+    # align the colons  
     maxpos = 0    
     for l in sl:
         if ':' in l:
             t = l.find(':')
             maxpos = t if t > maxpos else maxpos
-    
+
     if maxpos:
         for i,l in enumerate( sl ):
             if ':' in l:
                 p = l.find(':')
                 b, c, e = l.partition(':')
                 sl[i] =  b + ' ' * (maxpos - p) + c + e 
-                
+
+    # align after 'in', 'out' or 'inout'
+    if port:
+        portdirections = ( ': in', ': out', ': inout')
+        maxpos = 0
+        for l in sl:
+            for tst in portdirections:
+                if tst in l:
+                    t = l.find(tst) + len(tst)
+                    maxpos = t if t > maxpos else maxpos
+                    continue
+        if maxpos:
+            for i,l in enumerate( sl ):
+                for tst in portdirections:
+                    if tst in l:
+                        p = l.find(tst)
+                        b, c, e = l.partition(tst)
+                        sl[i] =  b + c + ' ' * (maxpos - p - len(tst)) + e 
+          
     # align then :=' if any
     maxpos = 0
     for l in sl:
@@ -740,39 +887,44 @@ def sortalign( sl , sort = False):
                 p = l.find( ':=' )
                 b, c, e = l.partition(':=')
                 sl[i] =  b + ' ' * (maxpos - p) + c + e            
-    
+
     if sort:
         # sort the signals
         return sorted( sl )
     else:
         return sl
-    
+
+
 def inferattrs( m, mem):
     if isinstance(mem, StructType):
-#         print( mem )
         refs = vars( mem )
         for k in refs:
             s = refs[k]
             if isinstance(s, _Signal):
+#                 print('inferring Signal', k, repr( s ) , s._driven, s._read)
                 if not m._driven and s._driven:
                     m._driven = s._driven
                 if not m._read and s._read:
                     m._read = s._read
-            else:
+            elif isinstance(s, (Array, StructType)):
                 # it may be another StructType
                 # or an Array
+#                 print(' inferring Array or StructType', repr( s ) , s._driven, s._read)
+                inferattrs(m, s)
+            else:
+#                 print( 'inferring ?', k, repr( s ))
                 pass
             
-    
     elif isinstance(mem[0], list):
         for mmm in mem:
             inferattrs(m, mmm )
     else:
         # lowest (= last) level of m1D
         for s in mem:
-            if hasattr(m, '_driven') and hasattr(s, '_driven'):
-                if not m._driven and s._driven:
-                    m._driven = s._driven
+#             print( 'inferring' , s, s._driven, s._read)
+#             if hasattr(m, '_driven') and hasattr(s, '_driven'):
+            if not m._driven and s._driven:
+                m._driven = s._driven
             if not m._read and s._read:
                 m._read = s._read
              
@@ -981,7 +1133,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
     def BitRepr(self, item, var):
         tracejb( "_ConvertVisitor: BitRepr" )
         tracejbdedent()
-        return '"%s"' % bin(item, len(var))
+        return 'b"%s"' % bin(item, len(var), True)
 
 
     def inferCast(self, vhd, ori):
@@ -1031,8 +1183,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 pre, suf = "%s'image(" % ori._type._name, ")"
         elif isinstance(vhd, vhd_enum):
             if not isinstance(ori, vhd_enum):
-#                 tracejb( "_ConvertVisitor: inferring cast for enum " +  vhd._type._name)
-#                 print "inferring cast for enum " , vhd._type._name
                 pre, suf = "%s'pos(" % vhd._type._name, ")"
 
         logjb( '<' + pre + '>, <' + suf + '>', 'inferred')
@@ -1455,7 +1605,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 elif isinstance(lhs.vhd, vhd_int):
                     self.write("%s;" % n)
                 else:
-                    self.write('"%s";' % bin(n, size))
+                    self.write('b"%s";' % bin(n, size, True))
             self.dedent()
             self.writeline()
             self.write("end case;")
@@ -1653,7 +1803,10 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             pre, suf = self.inferCast(node.vhd, node.tree.vhd)
             fname = node.tree.name
         else:
+#             print( repr(f) )
             self.write(f.__name__)
+            logjb( f.__name__, 'f.__name__')
+
         if node.args:
             self.write(pre)
             # TODO rewrite making use of fname variable
@@ -1665,11 +1818,14 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 self.visit(arg)
             self.write(closing)
             self.write(suf)
+            
         if hasattr(node, 'tree'):
             if node.tree.kind == _kind.TASK:
                 Visitor = _ConvertTaskVisitor
             else:
                 Visitor = _ConvertFunctionVisitor
+                logjb( node.tree, '_ConvertFunctionVisitor' )
+                
             v = Visitor(node.tree, self.funcBuf)
             v.visit(node.tree)
         tracejbdedent()
@@ -1714,12 +1870,12 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             if abs(n) < 2**31:
                 self.write("to_unsigned(%s, %s)" % (n, node.vhd.size))
             else:
-                self.write('unsigned\'("%s")' % bin(n, node.vhd.size))
+                self.write('unsigned\'(b"%s")' % bin(n, node.vhd.size, True))
         elif isinstance(node.vhd, vhd_signed):
             if abs(n) < 2**31:
                 self.write("to_signed(%s, %s)" % (n, node.vhd.size))
             else:
-                self.write('signed\'("%s")' % bin(n, node.vhd.size))
+                self.write('signed\'(b"%s")' % bin(n, node.vhd.size, True))
         else:
             if n < 0:
                 self.write("(")
@@ -2048,6 +2204,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 else:
                     s = "%s" % obj
             elif isinstance(obj, integer_types):
+                logjb( obj, 'isinstance(obj, integer_types')
                 if isinstance(node.vhd, vhd_int):
                     s = self.IntRepr(obj)
                 elif isinstance(node.vhd, vhd_boolean):
@@ -2058,14 +2215,15 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                     if abs(obj) < 2** 31:
                         s = "to_unsigned(%s, %s)" % (obj, node.vhd.size)
                     else:
-                        s = 'unsigned\'("%s")' % bin(obj, node.vhd.size)
+                        s = 'unsigned\'(b"%s")' % bin(obj, node.vhd.size, True)
                 elif isinstance(node.vhd, vhd_signed):
                     if abs(obj) < 2** 31:
                         s = "to_signed(%s, %s)" % (obj, node.vhd.size)
                     else:
-                        s = 'signed\'("%s")' % bin(obj, node.vhd.size)
+                        s = 'signed\'(b"%s")' % bin(obj, node.vhd.size, True)
                             
             elif isinstance(obj, _Signal):
+                logjb( obj, 'isinstance(obj, _Signal')
                 s = str(obj)
                 ori = inferVhdlObj(obj)
                 pre, suf = self.inferCast(node.vhd, ori)
@@ -2092,7 +2250,11 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             elif isinstance( obj, Array):
                 logjbinspect(obj, 'obj is Array')
                 s = n
-                
+
+            elif isinstance(obj, dict):
+                print('obj is dict', obj, s, n)
+                # access the dict object
+     
             else:
                 self.raiseError(node, _error.UnsupportedType, "%s, %s" % (n, type(obj)))
         else:
@@ -2191,10 +2353,10 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             else:
                 if isinstance(node.vhd, vhd_unsigned):
                     pre, post = "unsigned'(", ")"
-                    c = '"%s"' % bin(c, node.vhd.size)
+                    c = 'b"%s"' % bin(c, node.vhd.size,True)
                 elif isinstance(node.vhd, vhd_signed):
                     pre, post = "signed'(", ")"
-                    c = '"%s"' % bin(c, node.vhd.size)
+                    c = 'b"%s"' % bin(c, node.vhd.size, True)
             self.write(pre)
             self.write("%s" % c)
             self.write(post)
@@ -2207,8 +2369,9 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
 #         if not isinstance(node.obj, Array):
         pre, suf = self.inferCast(node.vhd, node.vhdOri)
         if isinstance(node.value.vhd, vhd_signed) and isinstance(node.ctx, ast.Load):
-            pre = pre + "unsigned("
-            suf = ")" + suf
+            if not isinstance(node.obj, Array):
+                pre = pre + "unsigned("
+                suf = ")" + suf
         logjb( pre + ', ' + suf, 'pre, suf augmented')
         self.write(pre)
         logjb( node.value.__class__ , 'visiting', True)
@@ -2378,7 +2541,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 self.raiseError(ifnode, "base type error in sensitivity list")
         if len(senslist) >= 2 and bt == _WaiterList:
             # ifnode = node.code.nodes[0]
-            # print ifnode
             assert isinstance(ifnode, ast.If)
             asyncEdges = []
             for test, _ in ifnode.tests:
@@ -2502,31 +2664,37 @@ class _ConvertAlwaysCombVisitor(_ConvertVisitor):
     def visit_FunctionDef(self, node):
         # a local function works nicely too
         def compressSensitivityList(senslist):
-            ''' reduce spelled out list items like [*name*(0), *name*(1), ..., *name*(n)] to just *name*'''
-            print( senslist )
+            ''' reduce spelled out list items like [*name*(0), *name*(1), ..., *name*(n)] to just *name*
+                but then also remove .attr in records
+            '''
             r = []
             for item in senslist:
-                print( repr( item._name ))
-#                 if item._name is not None:
-                name = item._name.split('(',1)[0]
-#                 else:
-#                     # it may be in a list or array
-#                     name = None
-                if name not in r:
-                    r.append( name ) # note that the list now contains names and not Signals, but we are interested in the strings anyway ...
+#                 print( repr( item._name ))
+                if item._name is not None:
+                    # split off the base name (before the index ()
+                    # and/or weed the .attr
+                    name, _, _ = item._name.split('(',1)[0].partition('.')
+                    if name not in r:
+                        r.append( name ) # note that the list now contains names and not Signals, but we are interested in the strings anyway ...
+
             return r
 
         tracenode( node.name, 'restart')
         tracejb( "_ConvertAlwaysCombVisitor: visit_FunctionDef" )
         self.writeDoc(node)
-#         print( self.tree.senslist )
+#         print(self.tree.senslist)
+        logjb( self.tree.senslist, 'self.tree.senslist' )
         senslist = compressSensitivityList( self.tree.senslist )
+#         print('> ', senslist)
         logjb( senslist, 'compressed sensivity list')
         self.write("%s: process (" % self.tree.name)
-        for e in senslist[:-1]:
-            self.write(e)
-            self.write(', ')
-        self.write(senslist[-1])
+        if len(senslist) > 0:
+            for e in senslist[:-1]:
+                self.write(e)
+                self.write(', ')
+            self.write(senslist[-1])
+        else:
+            pass
         self.write(") is")
         self.indent()
         self.indent()
@@ -2643,7 +2811,8 @@ def _convertInitVal(reg, init):
         if abs(init) < 2**31:
             v = '%sto_%s(%s, %s)%s' % (pre, vhd_tipe, init, len(reg), suf)
         else:
-            v = '%s%s\'"%s"%s' % (pre, vhd_tipe, bin(init, len(reg)), suf)
+#             v = '%s%s\'"%s"%s' % (pre, vhd_tipe, bin(init, len(reg)), suf)
+            v = '%sb"%s"%s' % (pre, bin(init, len(reg), True), suf)
     else:
         assert isinstance(init, EnumItemType)
         v = init._toVHDL()
@@ -2749,28 +2918,33 @@ class _ConvertFunctionVisitor(_ConvertVisitor):
             self.writeDeclaration(obj, name, dir="in", constr=False, endchar="")
         tracejbdedent()
 
+
+
     def visit_FunctionDef(self, node):
         tracenode( node.name, 'restart')
         tracejb( "_ConvertFunctionVisitor: visit_FunctionDef" )
         logjbinspect(node, 'node', True )
         logjb( self.tree.name )
-        self.write("function %s(" % self.tree.name)
-        self.indent()
-        self.writeInputDeclarations()
-        self.writeline()
-        self.write(") return ")
-        self.writeOutputDeclaration()
-        self.write(" is")
-        self.writeDeclarations()
-        self.dedent()
-        self.writeline()
-        self.write("begin")
-        self.indent()
-        self.visit_stmt(node.body)
-        self.dedent()
-        self.writeline()
-        self.write("end function %s;" % self.tree.name)
-        self.writeline(2)
+        if self.tree.name not in functiondefs:
+            functiondefs.append( self.tree.name )
+            self.write("\tfunction %s(" % self.tree.name)
+            self.indent()
+            self.writeInputDeclarations()
+            self.writeline()
+            self.write(") return ")
+            self.writeOutputDeclaration()
+            self.write(" is")
+            self.writeDeclarations()
+            self.dedent()
+            self.writeline()
+            self.write("begin")
+            self.indent()
+            self.visit_stmt(node.body)
+            self.dedent()
+            self.writeline()
+            self.write("end function %s;" % self.tree.name)
+            self.writeline(2)
+
         tracejbdedent()
 
     def visit_Return(self, node):
@@ -2893,7 +3067,6 @@ class vhd_vector(vhd_type):
 
 
 class vhd_unsigned(vhd_vector):
-
     def toStr(self, constr=True):
 #         tracejb( "vhd_unsigned: toStr" )
 #         tracejbdedent()
@@ -2931,7 +3104,10 @@ class vhd_nat(vhd_int):
 #         tracejbdedent()
         return "natural"
 
-
+class vhd_array(vhd_type):
+    def to_Str(self):
+        return ''
+    
 class _loopInt(int):
     pass
 
@@ -3408,7 +3584,7 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
         self.generic_visit(node)
         logjbinspect( node, 'node', True)
         
-        if isinstance(node.obj, intbv) or (isinstance(node.obj, _Signal) and isinstance(node.obj.val, intbv)):
+        if isinstance(node.obj, intbv) or (isinstance(node.obj, _Signal) and isinstance(node.obj._val, intbv)):
             lower = node.value.vhd.size
             t = type(node.value.vhd)
             # node.expr.vhd = vhd_unsigned(node.expr.vhd.size)
@@ -3429,13 +3605,14 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
             
         elif isinstance(node.obj, Array):
             logjb( 'isArray _AnnotateTypesVisitor: accessSlice')
-            
-            if isinstance(node.obj._dtype, bool):
-                node.vhd = vhd_std_logic()
-            elif isinstance(node.obj._dtype, intbv):
-                node.vhd = vhd_unsigned(node.obj._nrbits)
-            else:
-                print( "???")
+            node.vhd = None
+#             node.vhd = vhd_array(0)
+#             if isinstance(node.obj._dtype, bool):
+#                 node.vhd = vhd_std_logic()
+#             elif isinstance(node.obj._dtype, intbv):
+#                 node.vhd = vhd_unsigned(node.obj._nrbits)
+#             else:
+#                 print( "???")
         
 
             

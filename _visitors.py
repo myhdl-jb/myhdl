@@ -2,6 +2,7 @@ import ast
 
 from myhdl import intbv
 from myhdl._Signal import _Signal, _isListOfSigs
+from myhdl._structured import Array, StructType
 
 
 class _SigNameVisitor(ast.NodeVisitor):
@@ -42,7 +43,7 @@ class _SigNameVisitor(ast.NodeVisitor):
         if id not in self.symdict:
             return
         s = self.symdict[id]
-        if isinstance(s, (_Signal, intbv)) or _isListOfSigs(s):
+        if isinstance(s, (_Signal, intbv)) or _isListOfSigs(s) or isinstance(s, Array):
             if self.context in ('input', 'output', 'inout'):
                 self.results[self.context].add(id)
             else:

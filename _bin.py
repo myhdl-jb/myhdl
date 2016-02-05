@@ -39,7 +39,7 @@ def _int2bitstring(num):
     return ''.join(bits)
 
 
-def bin(num, width=0):
+def bin(num, width=0, underscores=False):
     """Return a binary string representation.
 
     num -- number to convert
@@ -47,11 +47,25 @@ def bin(num, width=0):
     width -- specifies the desired string (sign bit padding)
     """
     num = long(num)
-    s = _int2bitstring(num)
+    t = _int2bitstring(num)
     if width:
         pad = '0'
         if num < 0:
             pad = '1'
-        return (width - len(s)) * pad + s
-    return s
+        t = (width - len(t)) * pad + t
+
+    if underscores:
+        rem = len(t) % 4
+        s = ''
+        if rem != 0:
+            s = ''.join((t[:rem], '_' if len(t) > 4 else ''))
+        for i in range(rem, len(t),4):
+            s = ''.join((s, t[i:i+4]))
+            if i != len(t) - 4:
+                s = ''.join((s, '_'))
+
+        return s
+
+    else:
+        return t
 

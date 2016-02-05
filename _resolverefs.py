@@ -9,8 +9,18 @@ from myhdl import ExtractHierarchyError
 
 from myhdl._structured import Array, StructType
 
-# tracing the poor man's way
-from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect
+from myhdl.tracejbdef import TRACEJBDEFS
+if TRACEJBDEFS['_resolverefs']:
+    from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect
+else:
+    def tracejb( a, b = None):
+        pass
+    def logjb(a, b = None, c = False):
+        pass
+    def tracejbdedent():
+        pass
+    def logjbinspect(a, b= None, c=None):
+        pass
 
 
 class _error:
@@ -24,6 +34,7 @@ class Data():
 
 
 def _resolveRefs(symdict, arg):
+    logjb( arg, '_resolveRefs: arg')
     gens = _flatten(arg)
     data = Data()
     data.symdict = symdict
@@ -69,44 +80,63 @@ class _AttrRefTransformer(ast.NodeTransformer):
         if not isinstance(node.value, ast.Name):
             tracejbdedent()
             return node
-
+        # Don't handle locals
+        if node.value.id not in self.data.symdict:
+            tracejbdedent()
+            return node
         obj = self.data.symdict[node.value.id]
-        logjb( dir( obj ), 'dir( obj )')
-#         logjb( vars( obj ), 'vars( obj )', True)
-        logjb( isinstance(obj, StructType) )
+#         logjb( vars( obj ), 'vars( obj )')
         #Don't handle enums and functions, handle signals as long as it is a new attribute
         if isinstance(obj, (EnumType, FunctionType)):
             tracejbdedent()
             return node
+
         elif isinstance(obj, SignalType):
             if hasattr(SignalType, node.attr):
                 tracejbdedent()
                 return node
+
+#TODO: may have to resolve down ...
         elif isinstance(obj, Array):
             logjb(  obj, 'is Array')
             tracejbdedent()
             return node
-        elif isinstance(obj, StructType):
-            logjb(  obj, 'is StructType returning node')
-            tracejbdedent()
-            return node
 
-        attrobj = getattr(obj, node.attr)
-        orig_name = node.value.id + '.' + node.attr
-        
-        logjb( '{} {} {}'.format( obj, orig_name, isinstance(obj, StructType)))
-        
-        if orig_name not in self.name_map:
-            logjb(orig_name , 'orig_name', True)
-            base_name = node.value.id + '_' + node.attr
-#             base_name = node.value.id + node.attr
-            logjb(base_name , 'base_name', True)
-            logjb( self.data.symdict.has_key(base_name), 'self.data.symdict.haskey(base_name)')
-            if self.data.symdict.has_key(base_name):
-                raise ExtractHierarchyError( _error.NameCollision.format(base_name, orig_name))
-            result = _suffixer(base_name, self.data.symdict)
-            logjb( result , 'self.name_map[orig_name]')
-            self.name_map[orig_name] = result
+#TODO: must resolve down
+        elif isinstance(obj, StructType):
+            logjb(  node, 'is StructType, returning node')
+            logjb(repr(obj))
+            attrobj = getattr(obj, node.attr)
+            orig_name = node.value.id + '.' + node.attr
+            logjb( '{} {} {}'.format( obj, orig_name, isinstance(obj, StructType)) , 'after getattr')
+            if orig_name not in self.name_map:
+                logjb(orig_name , 'orig_name', True)
+                logjb( self.data.symdict.has_key(orig_name), 'self.data.symdict.haskey(orig_name)')
+                if self.data.symdict.has_key(orig_name):
+                    raise ValueError('self.data.symdict.haskey(orig_name)')
+                logjb( orig_name , 'self.name_map[orig_name]')
+                self.name_map[orig_name] = orig_name
+
+        else:
+            attrobj = getattr(obj, node.attr)
+            orig_name = node.value.id + '.' + node.attr
+            if orig_name not in self.name_map:
+                logjb(orig_name , 'orig_name', True)
+                if node.value.id != 'self':
+                    if node.attr[0] != '_':
+                        base_name = node.value.id + '_' + node.attr
+                    else:
+                        base_name = node.value.id + node.attr
+                else:
+                    base_name = node.attr
+                logjb(base_name , 'base_name', True)
+                logjb( self.data.symdict.has_key(base_name), 'self.data.symdict.haskey(base_name)')
+                if self.data.symdict.has_key(base_name):
+                    raise ExtractHierarchyError( _error.NameCollision.format(base_name, orig_name))
+                result = _suffixer(base_name, self.data.symdict)
+                logjb( result , 'self.name_map[orig_name]')
+                self.name_map[orig_name] = result
+
         new_name = self.name_map[orig_name]
         self.data.symdict[new_name] = attrobj
         self.data.objlist.append(new_name)

@@ -18,7 +18,7 @@
 #  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 
 """ Module with the always_comb function. """
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function
 
 import sys
 import inspect
@@ -35,12 +35,22 @@ from myhdl._always import _Always
 from myhdl._resolverefs import _AttrRefTransformer
 from myhdl._visitors import _SigNameVisitor
 
-from myhdl._misc import m1Dinfo
 from myhdl._structured import Array, StructType
 
 
-# # tracing the poor man's way
-from myhdl.tracejb import tracejb, logjb, tracejbdedent
+# tracing the poor man's way
+from myhdl.tracejbdef import TRACEJBDEFS
+if TRACEJBDEFS['_always_comb']:
+    from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect
+else:
+    def tracejb( a, b = None):
+        pass
+    def logjb(a, b = None, c = False):
+        pass
+    def tracejbdedent():
+        pass
+    def logjbinspect(a, b= None, c= None):
+        pass
 
 
 class _error:
@@ -61,6 +71,7 @@ def always_comb(func):
     if func.__code__.co_argcount > 0:
         raise AlwaysCombError(_error.NrOfArgs)
     c = _AlwaysComb(func)
+#     print( 'exiting always_comb decorator')
     return c
 
 
@@ -97,7 +108,8 @@ class _AlwaysComb(_Always):
 #         self.waiter = W(self.gen)
 
 #     def __init__(self, func, symdict):      
-    def __init__(self, func):      
+    def __init__(self, func):
+      
         def senslistexpand( senslist, reg ):
             if isinstance(reg, StructType):
                 refs = vars( reg )
@@ -107,6 +119,7 @@ class _AlwaysComb(_Always):
                     elif isinstance(refs[k], (list, Array)):
                         senslistexpand(senslist, refs[k])
                     else:
+                        print( 'senslistexpand passing?')
                         pass
             else:
                 if isinstance(reg[0], (list, Array)):
@@ -115,30 +128,32 @@ class _AlwaysComb(_Always):
                 else:
                     # lowest (= last) level of m1D
                     if isinstance(reg[0], StructType):
-                        print( reg )
                         for rr in reg:
                             senslistexpand( senslist, rr)
                     else:
                         # list or Array
-                        senslist.extend(reg)
+                        if isinstance(reg, Array):
+                            senslist.extend(reg._array)
+                        else:
+                            senslist.extend(reg)
 
-#         logjb( '_AlwaysComb' )                          
 #         self.func = func
 #         self.symdict = symdict
         senslist = []
         super(_AlwaysComb, self).__init__(func, senslist)
-
+#         print(senslist)
         s = inspect.getsource(func)
         s = _dedent(s)
         tree = ast.parse(s)
-        # print ast.dump(tree)
+#         print( ast.dump(tree) )
         v = _AttrRefTransformer(self)
         v.visit(tree)
         v = _SigNameVisitor(self.symdict)
         v.visit(tree)
         self.inputs = v.results['input']
         self.outputs = v.results['output']
-
+#         print(v.results)
+#         print(self.inputs, self.outputs)
 #         inouts = v.results['inout'] | self.inputs.intersection(self.outputs)
 #         if inouts:
 #             raise AlwaysCombError(_error.SignalAsInout % inouts)
@@ -148,11 +163,12 @@ class _AlwaysComb(_Always):
 
 #         logjb( self.inputs, 'self.inputs')
         for n in self.inputs:
-#             logjb( n, 'n in self.inputs')
+            logjb( n, 'n in self.inputs')
             s = self.symdict[n]
             if isinstance(s, _Signal):
                 senslist.append(s)
             elif isinstance( s, (list, Array)):
+#                 print(repr(s))
                 # list or Array of sigs
                 senslistexpand( senslist, s)
             elif isinstance(s, StructType):
@@ -161,8 +177,8 @@ class _AlwaysComb(_Always):
             elif _isListOfSigs(s):
                 senslist.extend(s)
             else :
+                print('_always_comb', n)
                 pass
-#         logjb( senslist, 'senslist')
         self.senslist = tuple(senslist)
         self.gen = self.genfunc()
         if len(self.senslist) == 0:

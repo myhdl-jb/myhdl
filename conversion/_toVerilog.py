@@ -115,7 +115,8 @@ class _ToVerilogConvertor(object):
                  "no_myhdl_header",
                  "no_testbench",
                  "portmap",
-                 "trace"
+                 "trace",
+                 "no_initial_values"
                  )
 
     def __init__(self):
@@ -130,6 +131,7 @@ class _ToVerilogConvertor(object):
         self.no_myhdl_header = False
         self.no_testbench = False
         self.trace = False
+        self.no_initial_values = True
 
     def __call__(self, func, *args, **kwargs):
         global _converting
@@ -434,6 +436,37 @@ def expandconstant( c ):
                 s += ','
         return s
     
+def expandarray( c  ):
+    if isinstance(c[0], (list, Array)):
+        size = c._sizes[0] if isinstance(c, Array) else len( c )
+        s = ''
+        for i in range( size ):
+            s = ''.join((s, '\'{ ', expandarray(c[i]), ' }'))
+            if i != size - 1:
+                s = ''.join((s, ',\n' ))
+        return s
+    else:
+        # lowest (= last) level of m1D
+        if isinstance(c, Array):
+            size = c._sizes[0]
+        else:
+            size = len( c )
+        s = ''
+        cnt = 0
+        for i in range( size ):
+            if cnt < 3 :
+                cnt += 1
+            else:
+                cnt = 0
+            # using 'plain' integers
+            item = ' {}\'b{}{}{}'.format(c[i]._nrbits, 
+                                    bin(c[i]._val, c[i]._nrbits),
+                                     ', ' if i != size - 1 else '',
+                                     '\n' if cnt == 0 else '')
+            s = ''.join((s, item))
+
+        return s    
+    
     
 def _writeSigDecls(f, intf, siglist, memlist):
     constwires = []
@@ -450,11 +483,14 @@ def _writeSigDecls(f, intf, siglist, memlist):
                               category=ToVerilogWarning
                               )
             k = 'wire' if toVerilog.standard < 'SV20005' else 'wire '
+            ini = ''
             if s._driven == 'reg':
                 k = 'reg ' if toVerilog.standard < 'SV20005' else 'logic'
+                if not toVerilog.no_initial_values:
+                    ini = " = %s"% int(s._val)
             # the following line implements initial value assignments
             # print >> f, "%s %s%s = %s;" % (k, r, s._name, int(s._val))
-            print("%s %s%s%s;  " % (k, p, r, s._name), file=f)
+            print("%s %s%s%s%s;  " % (k, p, r, s._name, ini), file=f)
         elif s._read:
             # the original exception
             # raise ToVerilogError(_error.UndrivenSignal, s._name)
@@ -491,21 +527,31 @@ def _writeSigDecls(f, intf, siglist, memlist):
 
         if toVerilog.standard >= 'SV2005' and toVerilog.packedarrays:
             # make packed arrays, they look much nicer ...
+#             print(m._sizes)
             line = "{} {}".format( k,  p)
             for s in m._sizes:
-                line += '[0:{}-1]'.format(s)
-            print( '{} {} {};' .format(line, r, m.name) , file = f)
+                line = ''.join((line,'[0:{}-1]'.format(s)))
+            if toVerilog.no_initial_values :
+                print( '{} {} {};' .format(line, r, m.name) , file = f)
+            else:
+                print( '{} {} {} = \'{{ {} }};' .format(line, r, m.name , expandarray(m.mem)) , file = f)
+                
         else:
             if m.levels > 1:
                 if toVerilog.standard == '1995' :
                     raise ValueError("Verilog 1995 only recognises 1 level")
-                
+
                 line = "{} {}{}{}".format( k,  p, r, m.name)
                 for s in m._sizes:
-                    line += '[0:{}-1]'.format(s)
+                    line = ''.join((line, '[0:{}-1]'.format(s)))
                 print( '{};' .format(line) , file = f)
             else:
-                print("%s %s%s%s [0:%s-1];" % (k, p, r, m.name, m.depth), file=f)
+                line = "{} {}{}{}  [0:{}-1]".format( k,  p, r, m.name, m.depth)
+                if toVerilog.no_initial_values :
+                    print( '{};' .format(line) , file = f)
+                else:
+                    print( '{} = \'{{ {} }};' .format(line , expandarray(m.mem)) , file = f)
+#                 print("%s %s%s%s [0:%s-1];" % (k, p, r, m.name, m.depth), file=f)
     print(file=f)
     for s in constwires:
         if s._type in (bool, intbv):

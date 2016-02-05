@@ -34,9 +34,24 @@ from myhdl._simulator import _siglist
 from myhdl._bin import bin
 
 
-# # tracing the poor man's way
-# from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect
-
+# tracing the poor man's way
+from myhdl.tracejbdef import TRACEJBDEFS
+DO_INSPECT = False
+if TRACEJBDEFS['_ShadowSignal']:
+    from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect, tracenode, logjbwr
+else:
+    def tracejb( a, b = None):
+        pass
+    def logjb(a, b = None, c = False):
+        pass
+    def tracejbdedent():
+        pass
+    def logjbinspect(a, b= None, c= None):
+        pass
+    def tracenode( a= None, b= None ):
+        pass
+    def logjbwr( a):
+        pass
 
 # shadow signals
 
@@ -129,7 +144,7 @@ class _SliceSignal(_ShadowSignal):
 
 class _IndexSignal(_ShadowSignal):
 
-    __slots__ = ('_sig', '_left', '_right')
+    __slots__ = ('_sig', '_left')
 
     def __init__(self, sig, left):
         _ShadowSignal.__init__(self, sig[left])
@@ -179,7 +194,7 @@ class _IndexSignal(_ShadowSignal):
 
 class _CloneSignal(_ShadowSignal):
 
-    __slots__ = ('_sig', '_left', '_right')
+    __slots__ = ('_sig')
 
     def __init__(self, sig):
         ### XXX error checks
@@ -191,6 +206,8 @@ class _CloneSignal(_ShadowSignal):
         gen = self._genfuncClone()
         self._waiter = _SignalWaiter(gen)
         self._driven = 'wire'
+        # as we are a shadow signal we are reading the provider signal
+        self._sig._read = True
 
     def _genfuncClone(self):
         sig = self._sig
@@ -225,6 +242,8 @@ class _CloneSignal(_ShadowSignal):
 
     def toVHDL(self):
 #         tracejb('_ShadowSignal: _SliceSignal: toVHDL')
+        logjb( self._name, 'self._name', True)
+        logjb( self._sig._name, 'self._sig._name')
 #         tracejbdedent()
         return "    %s <= %s;" % (self._name, self._sig._name)
 
@@ -242,6 +261,7 @@ class ConcatSignal(_ShadowSignal):
         nrbits = 0
         val = 0
         for a in args:
+#             print( 'ConcatSignal', repr( a ))
             if isinstance(a, intbv):
                 w = a._nrbits
                 v = a._val
@@ -314,12 +334,11 @@ class ConcatSignal(_ShadowSignal):
 #         tracejbdedent()
 
     def toVHDL(self):
-#         tracejb('_ShadowSignal->ConcatSignal->toVHDL')
         lines = []
         ini = intbv(self._initval)[self._nrbits:]
         hi = self._nrbits
         for a in self._args:
-#             logjbinspect(a, 'a', True)
+#             print( 'ConcatSignal', repr( a ))
             if isinstance(a, bool):
                 w = 1
             else:
@@ -335,13 +354,13 @@ class ConcatSignal(_ShadowSignal):
                     lines.append("    %s(%s) <= '%s';" % (self._name, lo, bin(ini[lo])))
             else:
                 if isinstance(a, _Signal):
-#                     logjbinspect(a, 'a', True)
-                    lines.append("    %s(%s-1 downto %s) <= %s;" % (self._name, hi, lo, a._name))
+                    if a._min < 0:
+                        lines.append("    %s(%s-1 downto %s) <= unsigned(%s);" % (self._name, hi, lo, a._name))
+                    else:
+                        lines.append("    %s(%s-1 downto %s) <= %s;" % (self._name, hi, lo, a._name))
                 else:
                     lines.append('    %s(%s-1 downto %s) <= "%s";' % (self._name, hi, lo, bin(ini[hi:lo],w)))
             hi = lo
-#         logjb( lines, 'lines')
-#         tracejbdedent()
         return "\n".join(lines)
 
     def toVerilog(self):

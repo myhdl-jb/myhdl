@@ -27,15 +27,15 @@ downrange -- function that returns a downward range
 from __future__ import absolute_import
 
 
-import sys
+# import sys
 import inspect
 
 from myhdl._Cosimulation import Cosimulation
 from myhdl._instance import _Instantiator
-      
+
 # tracing the poor man's way
-TRACING_JB = True
-if TRACING_JB:
+from myhdl.tracejbdef import TRACEJBDEFS
+if TRACEJBDEFS['_miscmain']:
     from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect
 else:
     def tracejb( a, b = None):
@@ -44,40 +44,72 @@ else:
         pass
     def tracejbdedent():
         pass
-    def logjbinspect(a, b= None):
-        pass      
-      
-      
+    def logjbinspect(a, b= None, c = False):
+        pass
+    def tracenode( a = None, b = None):
+        pass
+
+
 def _isGenSeq(obj):
     if isinstance(obj, (Cosimulation, _Instantiator)):
         return True
 #     if not isinstance(obj, (Array, list, tuple, set)):
     if not isinstance(obj, (list, tuple, set)):
         return False
-    logjb( repr( obj ), '_isGenSeq')
-##     if not obj:
-##         return False
     for e in obj:
         if not _isGenSeq(e):
             return False
     return True
 
-    
-def instances():
+
+def collectrtl( l, dst):
+    for item in l:
+        if _isGenSeq(item):
+            dst.append(item)
+        elif isinstance(item, (tuple, list)):
+            dst.append( collectrtl(item, dst))
+        else:
+            if hasattr(item, 'rtl'):
+                dst.append(item.rtl())
+    return dst
+ 
+def rtlinstances():
+#     pass
+    ''' search for the rtl in 'class' modules '''
     f = inspect.currentframe()
     d = inspect.getouterframes(f)[1][0].f_locals
     l = []
     for v in d.values():
         if _isGenSeq(v):
             l.append(v)
+        elif isinstance(v, (tuple, list)):
+            print(v)
+            ll = []
+            l.append( collectrtl(v, ll))
+        else:
+            print(repr(v))
+            if hasattr(v, 'rtl'):
+                l.append(v.rtl())
     return l
-    
+
+
+def instances():
+    f = inspect.currentframe()
+    d = inspect.getouterframes(f)[1][0].f_locals
+    l = []
+    for v in d.values():
+        if _isGenSeq(v):
+#             print(v)
+            l.append(v)
+    return l
+
 def downrange(start, stop=0, step=1):
     """ Return a downward range. """
     return range(start-1, stop-1, -step)
 
 
 def m1Dinfo( l ):
+    ''' determine the properties of a (multi-dimensiomnal) list '''
     element = l[0]
     totalelements = len(l)
     levels = 1
@@ -87,7 +119,26 @@ def m1Dinfo( l ):
         totalelements *= len(element)
         element = element[0]
         levels += 1
-#     ls = [item for item in reversed(sizes)] 
-    return levels, sizes, totalelements, element       
+    return levels, sizes, totalelements, element
 
-from myhdl._structured import Array
+
+# class rtlinstance(object):
+#     def __init__(self, f):
+#         self.f = f
+# 
+#     def __get__(self, obj, objtype):
+#         """Support instance methods."""
+#         import functools
+#         return functools.partial(self.__call__, obj)
+#      
+#     def __call__(self, *args, **kwargs):
+#         print( "Entering {}".format(self.f.__name__))
+#         self.f(*args, **kwargs)
+# def rtlinstance(f):
+#     def new_f(*args):
+#         print( "Entering {} of class {}".format(f.__name__, f.__class__.__name__))
+#         return f(*args)
+#     return new_f
+
+
+# from myhdl._structured import Array

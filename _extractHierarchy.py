@@ -20,16 +20,18 @@
 """ myhdl _extractHierarchy module.
 
 """
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function
 
 
 import sys
 import inspect
-from inspect import currentframe, getframeinfo, getouterframes
-import re
+import collections
+
+# from inspect import currentframe, getframeinfo, getouterframes
+# import re
 import string
-from types import GeneratorType
-import linecache
+# from types import GeneratorType
+# import linecache
 
 from myhdl import ExtractHierarchyError, ToVerilogError, ToVHDLError
 from myhdl._Signal import _Signal, _isListOfSigs
@@ -42,8 +44,8 @@ from myhdl._structured import StructType
 
 
 # tracing the poor man's way
-TRACING_JB = False
-if TRACING_JB:
+from myhdl.tracejbdef import TRACEJBDEFS
+if TRACEJBDEFS['_extractHierarchy']:
     from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect
 else:
     def tracejb( a, b = None):
@@ -52,7 +54,7 @@ else:
         pass
     def tracejbdedent():
         pass
-    def logjbinspect(a, b= None):
+    def logjbinspect(a, b= None, c=False):
         pass
 
 _profileFunc = None
@@ -78,10 +80,10 @@ class _Instance(object):
             self.objdict = objdict
 
 
-_memInfoMap = {}
+_memInfoMap = collections.OrderedDict() #{}
 
 class _MemInfo(object):
-    __slots__ = ['mem', 'name', 'elObj', 'depth', '_used', '_driven', '_read', 'levels', '_sizes', '_typedef']
+    __slots__ = ['mem', 'name', 'elObj', 'depth', '_used', '_driven', '_read', 'levels', '_sizes', '_typedef', 'usagecount']
     def __init__(self, mem, levels, sizes, totalelements, element):
         self.mem = mem
         self.name = None
@@ -93,7 +95,7 @@ class _MemInfo(object):
         self._driven = None
         self._read = None
         self._typedef = None
-
+        self.usagecount = 1
 
 def _getMemInfo(mem):
     return _memInfoMap[id(mem)]
@@ -101,6 +103,7 @@ def _getMemInfo(mem):
 def _makeMemInfo(mem, levels, sizes, totalelements, element):
     key = id(mem)
     if key not in _memInfoMap:
+#         print( '_makeMemInfo', key, mem, levels, sizes, totalelements, element )
         _memInfoMap[key] = _MemInfo(mem, levels, sizes, totalelements, element)
     return _memInfoMap[key]
 
@@ -242,13 +245,14 @@ class _HierExtr(object):
 
     def __init__(self, name, dut, *args, **kwargs):
 
-        # a local (recursive) subroutine
         def _nDname(top, name, obj):
-                names[id(obj)] = name
-                absnames[id(obj)] = "%s_%s" % (top, name)
-                if isinstance(obj, (tuple, list)):
-                    for i, item in enumerate(obj):
-                        _nDname(top, '{}{}'.format(name, i), item)
+            ''' a local (recursive) subroutine '''
+            names[id(obj)] = name
+            absnames[id(obj)] = '{}_{}'.format(top, name)
+#             print('{}_{}'.format(top, name))
+            if isinstance(obj, (tuple, list)):
+                for i, item in enumerate(obj):
+                    _nDname(top, '{}{}'.format(name, i), item)
 
 
         tracejb( name , '_HierExtr: __init__')
@@ -266,7 +270,7 @@ class _HierExtr(object):
                           'processes', 'posedge', 'negedge')
         self.skip = 0
         self.hierarchy = hierarchy = []
-        self.absnames = absnames = {}
+        self.absnames = absnames = collections.OrderedDict() #{}
         self.level = 0
 
         logjb('Start extraction ===========================')
@@ -287,7 +291,7 @@ class _HierExtr(object):
         hierarchy.reverse()
         logjb( hierarchy , "reversed hierarchy")
         # walk the hierarchy to define relative and absolute names
-        names = {}
+        names = {} #collections.OrderedDict() #{}
         logjb(names , "names {}")
         top_inst = hierarchy[0]
         obj, subs = top_inst.obj, top_inst.subs
@@ -299,6 +303,7 @@ class _HierExtr(object):
             logjbinspect(top_inst, 'top_inst', True)
             raise ExtractHierarchyError(_error.InconsistentToplevel % (top_inst.level, name))
         for inst in hierarchy:
+#             print(inst)
             tracejb( inst , "next inst" )
             obj, subs = inst.obj, inst.subs
             logjb( obj , 'obj', True)
@@ -318,14 +323,15 @@ class _HierExtr(object):
             logjb( tn, "absnames[id(obj)]")
             tracejb( subs, "next subs" )
             for sn, so in subs:
-                _nDname(tn, sn, so)
+                logjb( sn, 'sn', True)
+                logjb( so, 'so')
+                sns = sn[:-3] if sn[-3:] == 'rtl' else sn
+                _nDname(tn, sns, so)
             tracejbdedent()
             tracejbdedent()
         tracejbdedent()
         tracejbdedent()
 
-
-            
 
     def extractor(self, frame, event, arg): 
         if event == "call":
@@ -341,7 +347,7 @@ class _HierExtr(object):
             funcname = frame.f_code.co_name
             func = frame.f_globals.get(funcname)
             if func is None:
-                logjb('func is None?')
+#                 logjb('func is None?')
                 # Didn't find a func in the global space, try the local "self"
                 # argument and see if it has a method called *funcname*
                 obj = frame.f_locals.get('self')
@@ -353,8 +359,8 @@ class _HierExtr(object):
             if not self.skip:
                 isGenSeq = _isGenSeq(arg)
                 if isGenSeq:
-                    logjb( arg, 'extractor isGenSeq')
-                    specs = {}
+#                     logjb( arg, 'extractor isGenSeq')
+                    specs = {} #collections.OrderedDict() #{}
                     for hdl in _userCodeMap:
                         spec = "__%s__" % hdl
                         if spec in frame.f_locals and frame.f_locals[spec]:
@@ -370,9 +376,9 @@ class _HierExtr(object):
                 # building hierarchy only makes sense if there are generators
                 if isGenSeq and arg:
                     logjb( arg, 'isGenSeq and arg')
-                    sigdict = {}
-                    memdict = {}
-                    argdict = {}
+                    sigdict = {} #collections.OrderedDict() #{}
+                    memdict = {} #collections.OrderedDict() #{}
+                    argdict = {} #collections.OrderedDict() #{}
                     if func:
                         arglist = inspect.getargspec(func).args
                     else:
@@ -380,6 +386,30 @@ class _HierExtr(object):
                     logjb( arglist, 'arglist')
                     symdict = frame.f_globals.copy()
                     symdict.update(frame.f_locals)
+                    logjb( len(arglist), 'len(arglist)', True)
+                    logjb( len(frame.f_locals), 'len(frame.f_locals)')
+
+#                     # this will at least keep the lower modules signal names in
+#                     # the order they are spec'd in the source
+#                     nsymdict = collections.OrderedDict() #{}
+#                     for k,v in frame.f_globals.items():
+#                         nsymdict[k] = v
+#                     # make a local copy of the f_locals
+#                     lsymdict = frame.f_locals.copy()
+#                     # copy over following the 'sorted' arglist
+#                     if len(arglist):
+#                         for key in arglist:
+#                             if key in lsymdict:
+#                                 nsymdict[key] = lsymdict[key]
+#                                 del lsymdict[key]
+#                         # add any left overs
+#                         nsymdict.update( lsymdict )
+#                     else:
+#                         nsymdict.update(frame.f_locals)
+
+#                     logjb( symdict, 'symdict')
+#                     logjb( nsymdict, 'nsymdict')
+
                     cellvars = []
 
                     #All nested functions will be in co_consts
@@ -391,22 +421,25 @@ class _HierExtr(object):
                             if genfunc.__code__ in consts:
                                 local_gens.append(item)
                         if local_gens:
+                            logjb( local_gens, 'local_gens')
                             cellvarlist = _getCellVars(symdict, local_gens)
                             cellvars.extend(cellvarlist)
+                            #TODO: must re-work this to let 'interfaces' work as before
                             objlist = _resolveRefs(symdict, local_gens)
                             cellvars.extend(objlist)
-                                                        
-                    #for dict in (frame.f_globals, frame.f_locals):
-#                     print( symdict )
+
+                    # the last one passing by is the top module ...
+#                     for n, v in nsymdict.items():
                     for n, v in symdict.items():
                         # extract signals and memories
                         # also keep track of whether they are used in generators
                         # only include objects that are used in generators
 ##                             if not n in cellvars:
 ##                                 continue
-#                         logjb( n, 'n', True)
-#                         logjb( v, 'v')
+                        logjb( n, 'n,v in symdict.items()', True)
+                        logjb( v, 'v')
                         if isinstance(v, _Signal):
+                            logjb( n, 'sigdict[n] = v', True)
                             logjb( 'is _Signal')
                             sigdict[n] = v
                             if n in cellvars:
@@ -420,8 +453,6 @@ class _HierExtr(object):
                         elif isinstance(v, list):
                             if len(v) > 0:
                                 logjb( 'is _list')
-#                                 logjb( n, 'n', True)
-#                                 logjb( v, 'v')
                                 levels, sizes, totalelements, element = m1Dinfo( v )
                                 if isinstance(element, _Signal):
                                     m = _makeMemInfo(v, levels, sizes, totalelements, element ) 
@@ -440,22 +471,27 @@ class _HierExtr(object):
                             memdict[n] = m
                             if n in cellvars:
                                 m._used = True
-                                
+                                m._driven = v._driven
+
                         elif isinstance(v, StructType):       
+#TODO: keep top level StructType arguments from entering the memdict as they will be expanded
                             logjb(vars(v), 'Struct ...')   
                             logjb(dir(v), 'Struct ...')  
                             logjb( v.__class__.__name__ , 'v.__class__') 
+                            logjb( self.level, 'self.level')
+#                             if self.level > 1:
                             # should also be entered in the memdict   
                             m = _makeMemInfo(v, 1, 1, 1, v ) 
                             logjb( m, 'm')
                             memdict[n] = m
                             if n in cellvars:
                                 m._used = True
-                            
+                            else:
+                                logjb( v, 'skipping v:')
+
                         # save any other variable in argdict
-                        if (n in arglist) : #and (n not in sigdict) and (n not in memdict):
-                            logjb( n, 'stored in argdict[n]', True)
-#                             logjb( v, 'value')
+                        if (n in arglist) and (n not in sigdict) and (n not in memdict):
+                            logjb( n, 'stored in argdict[n]')
                             argdict[n] = v
 
                     subs = []
@@ -464,6 +500,7 @@ class _HierExtr(object):
                             if elt is sub:
                                 subs.append((n, sub))
 
+                    logjb( sigdict, 'sigdict')
                     inst = _Instance(self.level, arg, subs, sigdict, memdict, func, argdict)
                     self.hierarchy.append(inst)
 

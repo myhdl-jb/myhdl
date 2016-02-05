@@ -26,10 +26,10 @@ from __future__ import print_function
 
 
 import sys
-from inspect import currentframe, getouterframes
+# from inspect import currentframe, getouterframes
 import time
 import os
-path = os.path
+# import collections
 import shutil
 
 from myhdl import _simulator, __version__, EnumItemType
@@ -38,10 +38,21 @@ from myhdl import TraceSignalsError
 from myhdl._Signal import _Signal
 from myhdl._ShadowSignal import _TristateSignal, _TristateDriver
 from myhdl._structured import Array, StructType
-from myhdl._intbv import intbv
+# from myhdl._intbv import intbv
 
 # tracing the poor man's way
-from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect
+from myhdl.tracejbdef import TRACEJBDEFS
+if TRACEJBDEFS['_traceSignals']:
+    from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect
+else:
+    def tracejb( a, b = None):
+        pass
+    def logjb(a, b = None, c = False):
+        pass
+    def tracejbdedent():
+        pass
+    def logjbinspect(a, b= None):
+        pass
 
 
 _tracing = 0
@@ -96,14 +107,15 @@ class _TraceSignalsClass(object):
 
             h = _HierExtr(name, dut, *args, **kwargs)
             vcdpath = name + ".vcd"
-            if path.exists(vcdpath):
-                backup = vcdpath + '.' + str(path.getmtime(vcdpath))
+            if os.path.exists(vcdpath):
+                backup = vcdpath + '.' + str(os.path.getmtime(vcdpath))
                 shutil.copyfile(vcdpath, backup)
                 os.remove(vcdpath)
             vcdfile = open(vcdpath, 'w')
             _simulator._tracing = 1
             _simulator._tf = vcdfile
             _writeVcdHeader(vcdfile, self.timescale)
+#             print(h.hierarchy)
             _writeVcdSigs(vcdfile, h.hierarchy, self.tracelists)
         finally:
             _tracing = 0
@@ -157,7 +169,7 @@ def _getSval(s):
 
 
 def _writeVcdSigs(f, hierarchy, tracelists):
-    
+
     # local functions
     # can access local variables ...
     # which can be dangerous too ...
@@ -181,49 +193,74 @@ def _writeVcdSigs(f, hierarchy, tracelists):
                     print("$var reg %s %s %s $end" % (w, s._code, signame), file=f)
                 else:
                     print("$var real 1 %s %s $end" % (s._code, signame), file=f)
-                
-                            
-    def expandmemsigs( signame, mm, memindex , level = 0):
-        if isinstance(mm[0], (list, Array)):
-            for i,mmm in enumerate(mm):
-                nextname = '{}({})' .format( signame, i)
-                expandmemsigs(nextname, mmm, memindex , level + 1 )
-        else:
-            # lowest (= last) level of m1D
-            # but the 'element' may be an interface ...
-            for i,s in enumerate( mm ):
-                if isinstance(s, _Signal):
-                    _writeVcdMemSig(s, signame, siglist, memindex , f)
-                    memindex += 1
-                elif isinstance(s, StructType):
-                    print("$scope module {} $end" .format('{}({})'.format( signame, i)), file=f)
-                    # collect the Signals
-                    vargs = vars( s )
-                    for k in vargs:
-                        if isinstance( vargs[k], _Signal):
-                            _writeVcdMemSig(vargs[k], '{}({}).{}'.format( signame, i, k), siglist, None , f)
+
+ 
+    def expandmemsigs( signame, mem, memindex , level = 0):
+        if isinstance(mem  , (list, Array)):
+            if isinstance(mem[0], (list, Array)):
+                for idx, mmm in enumerate(mem):
+                    nextname = '{}({})' .format( signame, idx)
+                    expandmemsigs(nextname, mmm, memindex , level + 1 )
+            else:
+                # lowest (= last) level of m1D
+                # but the 'element' may be an interface ...
+                for idx, obj in enumerate( mem ):
+                    if isinstance(obj, _Signal):
+                        _writeVcdMemSig(obj, signame, siglist, memindex , f)
+                        memindex += 1
+                    elif isinstance(obj, StructType):
+                        print("$scope module {} $end" .format('{}.{}'.format( signame, idx)), file=f)
+                        nextname = '{}.{}'.format(signame, idx)
+                        expandmemsigs(nextname, obj, memindex , level + 1 )
+                        print("$upscope $end", file=f)
+
+        elif isinstance(mem, StructType):
+            vargs = vars( mem )
+            for key in vargs:
+                obj = vargs[key]
+                if isinstance( obj , _Signal):
+                    _writeVcdMemSig(obj, '{}.{}'.format( signame, key), siglist, None , f)
+                elif isinstance(obj, (Array, StructType)):
+                    print("$scope module {} $end" .format('{}.{}'.format( signame, key)), file=f)
+                    nextname = '{}.{}'.format(signame, key)
+                    expandmemsigs(nextname, obj, memindex , level + 1 )
                     print("$upscope $end", file=f)
 
-                    
 
-                
-            
     curlevel = 0
     namegen = _genNameCode()
     siglist = []
+
+    # the top-level will be 'un-sorted'
+
     for inst in hierarchy:
         level = inst.level
         name = inst.name
+#         if curlevel == 0:
+#             sigdict = collections.OrderedDict()
+#             # first copy over what we don't have in hierarchy[1]
+#             for k,v in inst.sigdict.items():
+#                 if k not in hierarchy[1].sigdict:
+#                     sigdict[k] = v
+#             # then add the 'ordered' list
+# #             sigdict.update(hierarchy[1].sigdict)
+#         else:
+#             sigdict = inst.sigdict
         sigdict = inst.sigdict
         memdict = inst.memdict
         delta = curlevel - level
+#         print(inst, name, curlevel, level, delta)
+
         curlevel = level
         assert(delta >= -1)
         if delta >= 0:
             for i in range(delta + 1):
                 print("$upscope $end", file=f)
         print("$scope module %s $end" % name, file=f)
+        logjb(sigdict, 'sigdict')
         for n, s in sigdict.items():
+            logjb( n, 'n', True)
+            logjb( s, 's')
             sval = _getSval(s)
             if sval is None:
                 raise ValueError("%s of module %s has no initial value" % (n, name))
@@ -256,18 +293,9 @@ def _writeVcdSigs(f, hierarchy, tracelists):
 #                 if memdict[n]._driven: # do not trace constants (yet)
 #                 print( n )
                 mem = memdict[n].mem
-                if isinstance(mem, StructType):
-                    print("$scope module {} $end" .format('{}'.format( n)), file=f)
-                    # collect the Signals
-                    vargs = vars( mem )
-                    for k in vargs:
-                        if isinstance( vargs[k], _Signal):
-                            _writeVcdMemSig(vargs[k], '{}.{}'.format( n, k), siglist, None , f)
-                    print("$upscope $end", file=f)
-                else:
-                    print("$scope module {} $end" .format(n), file=f)
-                    expandmemsigs(n, mem , 0 )
-                    print("$upscope $end", file=f)
+                print("$scope module {} $end" .format(n), file=f)
+                expandmemsigs(n, mem , 0 )
+                print("$upscope $end", file=f)
 
 
     for i in range(curlevel):

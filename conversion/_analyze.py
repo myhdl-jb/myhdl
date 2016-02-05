@@ -48,14 +48,11 @@ from myhdl._util import _isTupleOfInts, _dedent, _flatten, _makeAST
 from myhdl._resolverefs import _AttrRefTransformer
 from myhdl._compat import builtins, integer_types, PY2
 from myhdl._misc import m1Dinfo
-# from myhdl._array import Array
 from myhdl._structured import Array, StructType
 
 
-# tracing the poor man's way
-TRACING_JB = True
-DO_INSPECT = False
-if TRACING_JB:
+from myhdl.tracejbdef import TRACEJBDEFS
+if TRACEJBDEFS['_analyze']:
     from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect, tracenode
 else:
     def tracejb( a, b = None):
@@ -85,11 +82,8 @@ def _makeName(n, prefixes, namedict):
         name = n
     if '[' in name or ']' in name:
         name = "\\" + name + ' '
-##     print prefixes
-##     print name
     logjb( name, '_makeName: name', True)
     logjb( n, 'n')
-#     tracejbdedent()
     return name
 
 
@@ -100,13 +94,14 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
     memlist = []
     prefixes = []
 
-    openp, closep = '[', ']'
-    if hdl == 'VHDL':
-        openp, closep = '(', ')'
+#     openp, closep = '[', ']'
+#     if hdl == 'VHDL':
+    openp, closep = ('(', ')') if hdl == 'VHDL' else ('[', ']')
 
     for inst in hierarchy:
-#         logjb( inst, 'inst in hierarchy')
+        logjb( inst, 'inst in hierarchy')
         level = inst.level
+        logjb( inst.level, 'inst.level')
         name = inst.name
         sigdict = inst.sigdict
         memdict = inst.memdict
@@ -116,17 +111,18 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
         assert(delta >= -1)
         if delta > -1: # same or higher level
             prefixes = prefixes[:curlevel-1]
-        # skip processing and prefixing in context without signals
-        if not (sigdict or memdict):
-            prefixes.append("")
-            continue
+#         # skip processing and prefixing in context without signals
+#         if not (sigdict or memdict):
+#             prefixes.append("")
+#             continue
         prefixes.append(name)
-
+#         print(prefixes)
         for n, s in sigdict.items():
-            logjb( n, 'n', True)
-            logjb( s, 's' , True)
+            logjb( n, 'n, s in sigdict.items()', True)
+            logjb( repr(s) )
             logjb( s._name, 's' )
             if s._name is not None:
+                logjb( s._name, 's._name is not None')
                 continue
             
             if isinstance(s, (_SliceSignal, _IndexSignal, _CloneSignal)):
@@ -144,8 +140,8 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
             logjb( s, 'siglist.append')
         # list of signals
         for n, m in memdict.items():
-            logjbinspect( n, 'n', True)
-            logjbinspect( m, 'm', True)
+            logjb( n, 'n, m in memdict.items()', True)
+            logjb( m )
             if m.name is not None:
                 continue
             m.name = _makeName(n, prefixes, namedict)
@@ -154,6 +150,8 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
                 logjb( m.name, 'isArray, setting name')
                 m.mem._name = m.name 
                 logjb( m.mem._name , 'm.mem._name')
+            elif isinstance(m.mem, StructType):
+                logjb( m.name, 'isStructType', True)
             logjb( m.name, 'm.name', True)
             logjb( repr(m.mem) , 'm.mem')
             memlist.append(m)
@@ -180,29 +178,76 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
             continue
         # m is a m1D list
         logjb( m.name, 'expandsname')
-        if isinstance(m.mem, StructType):
-            vargs = vars( m.mem )
-            for k in vargs:
-                if isinstance( vargs[k], _Signal):
-                    makesname(None, vargs[k], m.name, vargs[k], k, None )
-        else:
-            if isinstance(m.elObj, _Signal):
-                expandsname(m.name, m.elObj,  m.mem, 0 , 0, openp, closep)
+        expandsignalnames(m.mem, m.name, 0, 0, openp, closep)
+#         if isinstance(m.mem, StructType):
+#             vargs = vars( m.mem )
+#             for k in vargs:
+#                 obj = vargs[k]
+#                 if isinstance( obj, _Signal):
+#                     makesname(None, obj, m.name, obj, k, None )
+#                 elif isinstance(obj, Array):
+#                     #TODO:
+#                     pass
+#                 elif isinstance(obj, StructType):
+#                     #TODO: 
+#                     pass
+#         elif isinstance(m.mem, (list, Array)):
+#             if isinstance(m.elObj, _Signal):
+#                 expandsname(m.name, m.elObj,  m.mem, 0 , 0, openp, closep)
+#             elif isinstance(m.elObj, StructType):
+#                 pass
+#         else:
+#             raise ValueError('Unknown m.mem type')
+
     tracejbdedent()
 
     return siglist, memlist
 
-def expandsname( signame, elobj, mm, memindex , level, openp, closep):
-    if isinstance(mm[0], (list, Array)):
-        for i, mmm in enumerate(mm):
-            nextname = '{}{}{}{}' .format( signame, openp, i, closep)
-            expandsname(nextname, elobj, mmm, memindex , level + 1, openp, closep )
-    else:
-        # lowest (= last) level of m1D
-        for i,s in enumerate(mm):
-            makesname(i, s, signame, elobj, openp, closep )
+def expandsignalnames( memobj, name , memindex, level, openp, closep):
+    if isinstance(memobj, (list, Array)):
+        if isinstance(memobj[0], (list, Array)):
+            for i, mmm in enumerate(memobj):
+                nextname = '{}{}{}{}' .format( name, openp, i, closep)
+                expandsignalnames( mmm, nextname , memindex, level, openp, closep)
+        else:
+            # lowest (= last) level of m1D
+                if isinstance(memobj, list):
+                    elobj = memobj[0]
+                else:
+                    elobj = memobj.element
+                for i,s in enumerate(memobj):
+                    makesname(i, s, name, elobj, openp, closep )
         memindex += 1
              
+    elif isinstance(memobj, StructType):
+        vargs = vars( memobj )
+        for key in vargs:
+            obj = vargs[key]
+            if isinstance( obj, _Signal):
+                makesname(None, obj, name, obj, key, None )
+
+            elif isinstance(obj, StructType):
+                nextname = '{}.{}'.format(name, key)
+                expandsignalnames(obj, nextname, memindex, 0, openp, closep) 
+
+            elif isinstance(obj, Array):
+                expandsignalnames(obj, name, memindex, level + 1, openp, closep) 
+
+    else:
+        raise ValueError("Unhandled obj: {}".format(repr(obj)))
+                         
+    
+# def expandsname( signame, elobj, mm, memindex , level, openp, closep):
+#     if isinstance(mm[0], (list, Array)):
+#         for i, mmm in enumerate(mm):
+#             nextname = '{}{}{}{}' .format( signame, openp, i, closep)
+#             expandsname(nextname, elobj, mmm, memindex , level + 1, openp, closep )
+#     else:
+#         # lowest (= last) level of m1D
+#         for i,s in enumerate(mm):
+#             makesname(i, s, signame, elobj, openp, closep )
+#         memindex += 1
+
 def makesname(i, s, signame, elobj, openp, closep):
         if i is None:
             s._name = "%s.%s" % (signame, openp)
@@ -210,8 +255,8 @@ def makesname(i, s, signame, elobj, openp, closep):
             s._name = "%s%s%s%s" % (signame, openp, i, closep)
         s._used = False
         if isinstance(elobj, _Signal):
-            if s._inList:
-                raise ConversionError(_error.SignalInMultipleLists, s._name)
+#             if s._inList:
+#                 raise ConversionError(_error.SignalInMultipleLists, s._name)
             s._inList = True
             if not s._nrbits:
                 raise ConversionError(_error.UndefinedBitWidth, s._name)
@@ -224,19 +269,12 @@ def _analyzeGens(top, absnames):
     tracejb('_analyzeGens')
     genlist = []
     for g in top:
-#         logjb( g, 'g')
         if isinstance(g, _UserCode):
             tree = g
         elif isinstance(g, (_AlwaysComb, _AlwaysSeq, _Always)):
             f = g.func
             tree = g.ast
             tree.symdict = f.__globals__.copy()
-#             logjb( tree.symdict, 'tree.symdict')
-#             for arg in tree.symdict:
-#                 logjb( arg, 'arg in tree.symdict')
-#                 for item in inspect.getmembers(arg):
-#                     if not item[0].startswith('__') and not item[0].endswith('__') :
-#                         logjb( item, ' '  )
 
             tree.callstack = []
             # handle free variables
@@ -796,7 +834,8 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             argsAreInputs = False
             tree = _makeAST(f)
             fname = f.__name__
-            tree.name = _Label(fname)
+#             tree.name = _Label(fname)
+            tree.name = fname
             tree.symdict = f.__globals__.copy()
 #             logjb( tree.symdict, 'tree.symdict')
             tree.nonlocaldict = {}
@@ -1102,7 +1141,6 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             if isinstance(sig, _TristateDriver):
                 sig._sig._driven = 'wire'
             if not isinstance(sig, _Signal):
-                # print "not a signal: %s" % n
                 pass
             else:
                 if sig._type is bool:
@@ -1649,10 +1687,14 @@ def _analyzeTopFunc(top_inst, func, *args, **kwargs):
             
     # now expand the interface objects
     for name, obj in objs:
-        if not hasattr(obj, '__dict__'):
-            continue
-        # must be an interface object (probably ...?)
-        expandinterface( v, name, obj )
+        if isinstance(obj, StructType):
+            # do not expand StructTypes
+            # toVHDL will handle this
+            v.argdict[name] = obj
+            v.argnames.append(name)
+        elif hasattr(obj, '__dict__'):
+            # must be an interface object (probably ...?)
+            expandinterface( v, name, obj )
 
 
 #     tracejbdedent()
@@ -1692,11 +1734,11 @@ class _AnalyzeTopFuncVisitor(_AnalyzeVisitor):
             if isinstance(arg, _Signal):
                 self.argdict[n] = arg
             if _isMem(arg):
-#                 if isinstance( arg, StructType):
-#                     pass
-#                 else:
-#                     self.raiseError(node, _error.ListAsPort, n)
-                self.raiseError(node, _error.ListAsPort, n)
+                if isinstance( arg, StructType):
+                    pass
+                else:
+                    self.raiseError(node, _error.ListAsPort, n)
+#                 self.raiseError(node, _error.ListAsPort, n)
                 
             logjb(self.argdict, 'self.argdict')
         logjb( 'for n in self.argnames[i+1:]:')

@@ -134,7 +134,7 @@ from ._simulator import now
 from ._delay import delay
 from ._Cosimulation import Cosimulation
 from ._Simulation import Simulation
-from ._misc import instances, downrange
+from ._misc import rtlinstances, instances, downrange #, rtlinstance
 from ._always_comb import always_comb
 from ._always_seq import always_seq, ResetSignal
 from ._always import always
@@ -180,7 +180,9 @@ __all__ = ["bin",
            "conversion",
            "Tristate",
            "Array",
-           "StructType"
+           "StructType",
+           "rtlinstances",
+#            "rtlinstance"
            ]
 
 

@@ -153,6 +153,20 @@ class _Signal(object):
                 self._printVcd = self._printVcdVec
             else:
                 self._printVcd = self._printVcdHex
+#         elif val in ('Open', 'Low', 'High'):
+#             if val == 'Open':
+#                 pass
+#             elif val == 'Low':
+#                 self._type = bool
+#                 self._val = 0
+#                 self._printVcd = self._printVcdBit
+#                 self._nrbits = 1
+#             elif val == 'High':
+#                 self._type = bool
+#                 self._val = 1
+#                 self._printVcd = self._printVcdBit
+#                 self._nrbits = 1
+
 #         elif isinstance(val, _Signal):
 #             self._type = val._type
 #             #differentiate between bool, intbv and others
@@ -548,7 +562,10 @@ class _Signal(object):
             return str(self._val)
 
     def __repr__(self):
-        return "Signal({})".format( repr(self._val))
+        if self._name:
+            return "{}: Signal({})".format( self._name, repr(self._val))
+        else:
+            return "Signal({})".format( repr(self._val))
 
     def _toVerilog(self):
         return self._name
@@ -590,8 +607,16 @@ class _Signal(object):
 
 
     # jb's (debatable?) extensions
-    def new(self):
-        return _Signal(self._val)
+    def copy(self, extendbits=None):
+        if extendbits is None:
+            return Signal(self._val)
+        else:
+            if isinstance(self._val, bool):
+                raise ValueError('Cannot extendbits of \'bool\' Signal')
+            else:
+                # intbv
+                return Signal(intbv(0, min = int(self._val._min * (2**extendbits)), 
+                                    max = int(self._val._max * (2**extendbits))))
 
     def suppressWarning(self):
         self._suppresswarning = True

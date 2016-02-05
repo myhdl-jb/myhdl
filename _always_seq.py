@@ -35,7 +35,6 @@ from myhdl._always import _Always
 from myhdl._resolverefs import _AttrRefTransformer
 from myhdl._visitors import _SigNameVisitor
 
-from myhdl._misc import m1Dinfo
 from myhdl._structured import Array
 
 
@@ -144,6 +143,9 @@ class _AlwaysSeq(_Always):
                 sigregs.append(reg)
             elif isinstance(reg, intbv):
                 varregs.append((n, reg, int(reg)))
+            elif isinstance(reg, Array):
+                for e in reg:
+                    sigregs.append(e)
             else:
                 assert _isListOfSigs(reg)
                 for e in reg:
