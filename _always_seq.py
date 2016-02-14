@@ -38,10 +38,6 @@ from myhdl._visitors import _SigNameVisitor
 from myhdl._structured import Array
 
 
-# tracing the poor man's way
-# from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbwr, logjbinspect
-
-
 # evacuate this later
 AlwaysSeqError = AlwaysError
 
@@ -126,7 +122,6 @@ class _AlwaysSeq(_Always):
         v = _AttrRefTransformer(self)
         v.visit(tree)
         v = _SigNameVisitor(self.symdict)
-#         logjb( tree )
         v.visit(tree)
 
         if v.results['inout']:

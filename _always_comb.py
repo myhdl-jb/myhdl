@@ -38,21 +38,6 @@ from myhdl._visitors import _SigNameVisitor
 from myhdl._structured import Array, StructType
 
 
-# tracing the poor man's way
-from myhdl.tracejbdef import TRACEJBDEFS
-if TRACEJBDEFS['_always_comb']:
-    from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect
-else:
-    def tracejb( a, b = None):
-        pass
-    def logjb(a, b = None, c = False):
-        pass
-    def tracejbdedent():
-        pass
-    def logjbinspect(a, b= None, c= None):
-        pass
-
-
 class _error:
     pass
 _error.ArgType = "always_comb argument should be a classic function"
@@ -63,7 +48,6 @@ _error.EmbeddedFunction = "embedded functions in always_comb function argument n
 _error.EmptySensitivityList= "sensitivity list is empty"
 
 def always_comb(func):
-#     tracejb('always_comb')
     if not isinstance( func, FunctionType):
         raise AlwaysCombError(_error.ArgType)
     if _isGenFunc(func):
@@ -71,43 +55,12 @@ def always_comb(func):
     if func.__code__.co_argcount > 0:
         raise AlwaysCombError(_error.NrOfArgs)
     c = _AlwaysComb(func)
-#     print( 'exiting always_comb decorator')
     return c
 
 
 # class _AlwaysComb(_Instantiator):
 class _AlwaysComb(_Always):
-
-#     def __init__(self, func, symdict):
-#         self.func = func
-#         self.symdict = symdict
-#         s = inspect.getsource(func)
-#         # remove decorators
-#         s = re.sub(r"@.*", "", s)
-#         s = s.lstrip()
-#         tree = compiler.parse(s)
-#         v = _SigNameVisitor(symdict)
-#         compiler.walk(tree, v)
-#         self.inputs = v.inputs
-#         self.outputs = v.outputs
-#         senslist = []
-#         for n in self.inputs:
-#             s = self.symdict[n]
-#             if isinstance(s, Signal):
-#                 senslist.append(s)
-#             else: # list of sigs
-#                 senslist.extend(s)
-#         self.senslist = tuple(senslist)
-#         self.gen = self.genfunc()
-#         if len(self.senslist) == 0:
-#             raise AlwaysCombError(_error.EmptySensitivityList)
-#         if len(self.senslist) == 1:
-#             W = _SignalWaiter
-#         else:
-#             W = _SignalTupleWaiter
-#         self.waiter = W(self.gen)
-
-#     def __init__(self, func, symdict):      
+    
     def __init__(self, func):
       
         def senslistexpand( senslist, reg ):
@@ -161,9 +114,7 @@ class _AlwaysComb(_Always):
         if v.results['embedded_func']:
             raise AlwaysCombError(_error.EmbeddedFunction)
 
-#         logjb( self.inputs, 'self.inputs')
         for n in self.inputs:
-            logjb( n, 'n in self.inputs')
             s = self.symdict[n]
             if isinstance(s, _Signal):
                 senslist.append(s)
@@ -172,7 +123,6 @@ class _AlwaysComb(_Always):
                 # list or Array of sigs
                 senslistexpand( senslist, s)
             elif isinstance(s, StructType):
-                logjb( s, 'is StructType')
                 senslistexpand( senslist, s)
             elif _isListOfSigs(s):
                 senslist.extend(s)

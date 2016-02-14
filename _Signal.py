@@ -40,8 +40,7 @@ from myhdl._intbv import intbv
 from myhdl._bin import bin
 # from myhdl._enum import EnumItemType
 
-# # tracing the poor man's way
-# from myhdl.tracejb import tracejb, logjb, tracejbdedent
+
 
 _schedule = _futureEvents.append
 

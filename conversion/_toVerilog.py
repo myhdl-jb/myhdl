@@ -51,25 +51,9 @@ from myhdl.conversion._analyze import (_analyzeSigs, _analyzeGens, _analyzeTopFu
                                        _Ram, _Rom)
 from myhdl._Signal import _Signal
 from myhdl._ShadowSignal import _TristateSignal, _TristateDriver
-# from myhdl._array import Array
 from myhdl._structured import Array, StructType
 
-# tracing the poor man's way
-TRACING_JB = True
-DO_INSPECT = False
-if TRACING_JB:
-    from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect, tracenode
-else:
-    def tracejb( a, b = None):
-        pass
-    def logjb(a, b = None, c = False):
-        pass
-    def tracejbdedent():
-        pass
-    def logjbinspect(a, b= None, c = False):
-        pass
-    def tracenode( a = None, b = None):
-        pass
+
 
 _converting = 0
 _profileFunc = None
@@ -378,21 +362,17 @@ def sortalign( cl, sort = False):
     return cl
 
 def _writeConstants(f, memlist):
-    tracejb( "_ToVerilogConvertor: _writeConstants: " )
     f.write("\n")
     cl = []
     for m in memlist:
         if not m._used:
             continue
         
-        logjb( m.name, 'm', True)
-        logjb( m.mem, 'm.mem')
         # infer attributes for the case of named signals in a list
         inferattrs( m, m.mem)
 
         if m._driven or not m._read:
             continue
-        logjb(m.name , 'm.name')
         if toVerilog.standard >= 'SV2005' :
             # make packed arrays, they look much nicer ...
             r = _getRangeString(m.elObj)
@@ -411,7 +391,6 @@ def _writeConstants(f, memlist):
     for l in sortalign( cl, sort = True ):
         f.write( l )        
     f.write("\n")
-    tracejbdedent()
 
 def expandconstant( c ):
     if isinstance(c[0], (list, Array)):

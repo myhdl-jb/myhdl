@@ -33,28 +33,7 @@ from myhdl._intbv import intbv
 from myhdl._simulator import _siglist
 from myhdl._bin import bin
 
-
-# tracing the poor man's way
-from myhdl.tracejbdef import TRACEJBDEFS
-DO_INSPECT = False
-if TRACEJBDEFS['_ShadowSignal']:
-    from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect, tracenode, logjbwr
-else:
-    def tracejb( a, b = None):
-        pass
-    def logjb(a, b = None, c = False):
-        pass
-    def tracejbdedent():
-        pass
-    def logjbinspect(a, b= None, c= None):
-        pass
-    def tracenode( a= None, b= None ):
-        pass
-    def logjbwr( a):
-        pass
-
 # shadow signals
-
 
 class _ShadowSignal(_Signal):
 
@@ -150,7 +129,7 @@ class _IndexSignal(_ShadowSignal):
         _ShadowSignal.__init__(self, sig[left])
         self._sig = sig
         self._left = left
-        self._right = None
+#         self._right = None
         gen = self._genfuncIndex()
         self._waiter = _SignalWaiter(gen)
 
@@ -201,8 +180,8 @@ class _CloneSignal(_ShadowSignal):
         # a 'clone'
         _ShadowSignal.__init__(self, sig.val)
         self._sig = sig
-        self._left = None
-        self._right = None
+#         self._left = None
+#         self._right = None
         gen = self._genfuncClone()
         self._waiter = _SignalWaiter(gen)
         self._driven = 'wire'
@@ -241,10 +220,6 @@ class _CloneSignal(_ShadowSignal):
         return "assign %s = %s;" % (self._name, self._sig._name)
 
     def toVHDL(self):
-#         tracejb('_ShadowSignal: _SliceSignal: toVHDL')
-        logjb( self._name, 'self._name', True)
-        logjb( self._sig._name, 'self._sig._name')
-#         tracejbdedent()
         return "    %s <= %s;" % (self._name, self._sig._name)
 
 

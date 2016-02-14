@@ -51,21 +51,6 @@ from myhdl._misc import m1Dinfo
 from myhdl._structured import Array, StructType
 
 
-from myhdl.tracejbdef import TRACEJBDEFS
-if TRACEJBDEFS['_analyze']:
-    from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect, tracenode
-else:
-    def tracejb( a, b = None):
-        pass
-    def logjb(a, b = None, c = False):
-        pass
-    def tracejbdedent():
-        pass
-    def logjbinspect(a, b= None, c = False):
-        pass
-    def tracenode( a = None, b = None):
-        pass
-
 
 myhdlObjects = myhdl.__dict__.values()
 builtinObjects = builtins.__dict__.values()
@@ -82,13 +67,10 @@ def _makeName(n, prefixes, namedict):
         name = n
     if '[' in name or ']' in name:
         name = "\\" + name + ' '
-    logjb( name, '_makeName: name', True)
-    logjb( n, 'n')
     return name
 
 
 def _analyzeSigs(hierarchy, hdl='Verilog'):
-    tracejb(hierarchy, '_analyzeSigs')
     curlevel = 0
     siglist = []
     memlist = []
@@ -99,9 +81,7 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
     openp, closep = ('(', ')') if hdl == 'VHDL' else ('[', ']')
 
     for inst in hierarchy:
-        logjb( inst, 'inst in hierarchy')
         level = inst.level
-        logjb( inst.level, 'inst.level')
         name = inst.name
         sigdict = inst.sigdict
         memdict = inst.memdict
@@ -118,11 +98,7 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
         prefixes.append(name)
 #         print(prefixes)
         for n, s in sigdict.items():
-            logjb( n, 'n, s in sigdict.items()', True)
-            logjb( repr(s) )
-            logjb( s._name, 's' )
             if s._name is not None:
-                logjb( s._name, 's._name is not None')
                 continue
             
             if isinstance(s, (_SliceSignal, _IndexSignal, _CloneSignal)):
@@ -133,73 +109,28 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
                 raise ConversionError(_error.UndefinedBitWidth, s._name)
             # slice signals
             for sl in s._slicesigs:
-                logjbinspect(sl , 'sl in s._slicesigs', True)
                 sl._setName(hdl)
-                logjbinspect(sl, 'after _setName', False)
             siglist.append(s)
-            logjb( s, 'siglist.append')
         # list of signals
         for n, m in memdict.items():
-            logjb( n, 'n, m in memdict.items()', True)
-            logjb( m )
             if m.name is not None:
                 continue
             m.name = _makeName(n, prefixes, namedict)
-            logjbinspect( m.mem , 'm.mem', True)
             if isinstance(m.mem, Array) :
-                logjb( m.name, 'isArray, setting name')
                 m.mem._name = m.name 
-                logjb( m.mem._name , 'm.mem._name')
             elif isinstance(m.mem, StructType):
-                logjb( m.name, 'isStructType', True)
-            logjb( m.name, 'm.name', True)
-            logjb( repr(m.mem) , 'm.mem')
+                pass
             memlist.append(m)
-            logjb( m, 'memlist.append')
 
-    logjb( prefixes , 'prefixes' )
-    logjb( namedict , 'namedict')
-    logjb( memlist , 'memlist')
     # handle the case where a named signal appears in a list also by giving
     # priority to the list and marking the signals as unused
 
 #     # tracing
-#     logjb( 'showing memlist')
-#     for m in memlist:
-#         if m._used:
-#             logjbinspect(m, 'm', True)
-#             for i, s in enumerate(m.mem):
-#                 logjb( "%s%s%s%s %s" % (m.name, open, i, close, str(s._inList)) )
-
-
-    logjb( 'traversing memlist')
     for m in memlist:
         if not m._used:
             continue
         # m is a m1D list
-        logjb( m.name, 'expandsname')
         expandsignalnames(m.mem, m.name, 0, 0, openp, closep)
-#         if isinstance(m.mem, StructType):
-#             vargs = vars( m.mem )
-#             for k in vargs:
-#                 obj = vargs[k]
-#                 if isinstance( obj, _Signal):
-#                     makesname(None, obj, m.name, obj, k, None )
-#                 elif isinstance(obj, Array):
-#                     #TODO:
-#                     pass
-#                 elif isinstance(obj, StructType):
-#                     #TODO: 
-#                     pass
-#         elif isinstance(m.mem, (list, Array)):
-#             if isinstance(m.elObj, _Signal):
-#                 expandsname(m.name, m.elObj,  m.mem, 0 , 0, openp, closep)
-#             elif isinstance(m.elObj, StructType):
-#                 pass
-#         else:
-#             raise ValueError('Unknown m.mem type')
-
-    tracejbdedent()
 
     return siglist, memlist
 
@@ -236,18 +167,6 @@ def expandsignalnames( memobj, name , memindex, level, openp, closep):
     else:
         raise ValueError("Unhandled obj: {}".format(repr(obj)))
                          
-    
-# def expandsname( signame, elobj, mm, memindex , level, openp, closep):
-#     if isinstance(mm[0], (list, Array)):
-#         for i, mmm in enumerate(mm):
-#             nextname = '{}{}{}{}' .format( signame, openp, i, closep)
-#             expandsname(nextname, elobj, mmm, memindex , level + 1, openp, closep )
-#     else:
-#         # lowest (= last) level of m1D
-#         for i,s in enumerate(mm):
-#             makesname(i, s, signame, elobj, openp, closep )
-#         memindex += 1
-
 def makesname(i, s, signame, elobj, openp, closep):
         if i is None:
             s._name = "%s.%s" % (signame, openp)
@@ -266,7 +185,6 @@ def makesname(i, s, signame, elobj, openp, closep):
                 raise ConversionError(_error.InconsistentBitWidth, s._name)
 
 def _analyzeGens(top, absnames):
-    tracejb('_analyzeGens')
     genlist = []
     for g in top:
         if isinstance(g, _UserCode):
@@ -282,35 +200,28 @@ def _analyzeGens(top, absnames):
             if f.__code__.co_freevars:
                 for n, c in zip(f.__code__.co_freevars, f.__closure__):
                     obj = c.cell_contents
-                    logjbinspect( repr(obj), 'obj', False)
                     tree.symdict[n] = obj
                     # currently, only intbv as automatic nonlocals (until Python 3.0)
                     if isinstance(obj, myhdl.intbv):
                         tree.nonlocaldict[n] = obj
 #             tree.name = absnames.get(id(g), str(_Label("BLOCK"))).upper()
             tree.name = absnames.get(id(g), str(_Label("BLOCK")))
-            logjb( tree.name, 'tree.name')
             v = _AttrRefTransformer(tree)
             v.visit(tree)
             v = _FirstPassVisitor(tree)
             v.visit(tree)
             if isinstance(g, _AlwaysComb):
-                logjb(g, 'isinstance(g, _AlwaysComb)' )
                 v = _AnalyzeAlwaysCombVisitor(tree, g.senslist)
             elif isinstance(g, _AlwaysSeq):
-                logjb(g, 'isinstance(g, _AlwaysSeq)' )
                 v = _AnalyzeAlwaysSeqVisitor(tree, g.senslist, g.reset, g.sigregs, g.varregs)
             else:
-                logjb(g, 'isinstance(g, _Always)' )
                 v = _AnalyzeAlwaysDecoVisitor(tree, g.senslist)
             v.visit(tree)
         else: # @instance
             f = g.gen.gi_frame
             tree = g.ast
             tree.symdict = f.f_globals.copy()
-            logjb( tree.symdict, 'tree.symdict')
             tree.symdict.update(f.f_locals)
-            logjb( tree.symdict, 'tree.symdict')
             tree.nonlocaldict = {}
             tree.callstack = []
 #             tree.name = absnames.get(id(g), str(_Label("BLOCK"))).upper()
@@ -323,7 +234,6 @@ def _analyzeGens(top, absnames):
             v.visit(tree)
             
         genlist.append(tree)
-    tracejbdedent()
     return genlist
 
 
@@ -574,29 +484,19 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         self.kind = _kind.NORMAL
 
     def visit_BinOp(self, node):
-        tracenode('BinOp')
-        tracejb(node, '_AnalyzeVisitor - visit_BinOp')
         self.visit(node.left)
         self.visit(node.right)
         node.obj = int(-1)
-        tracejbdedent()
-        tracenode()
 
     def visit_BoolOp(self, node):
-        tracenode('BoolOp')
-        tracejb(node, '_AnalyzeVisitor - visit_BoolOp')
         for n in node.values:
             self.visit(n)
         for n in node.values:
             if not hasType(n.obj, bool):
                 self.raiseError(node, _error.NotSupported, "non-boolean argument in logical operator")
         node.obj = bool()
-        tracejbdedent()
-        tracenode()
 
     def visit_UnaryOp(self, node):
-        tracenode('UnaryOp')
-        tracejb(node, '_AnalyzeVisitor - visit_UnaryOp')
         self.visit(node.operand)
         op = node.op
         node.obj = node.operand.obj
@@ -606,16 +506,11 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             node.obj = int(-1)
         elif isinstance(op, ast.USub):
             node.obj = int(-1)
-        tracejbdedent()
-        tracenode()
 
     def visit_Attribute(self, node):
-        tracenode('Attribute')
-        tracejb(node, '_AnalyzeVisitor - visit_Attribute')
         if isinstance(node.ctx, ast.Store):
             self.setAttr(node)
         else:
-            logjbinspect(node, 'node', True)
             self.getAttr(node)
         if node.attr == 'next':
             if isinstance(node.value, ast.Name):
@@ -624,29 +519,17 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                 if isinstance(obj, _Signal) and isinstance(obj._init, myhdl.modbv):
                     if not obj._init._hasFullRange():
                         self.raiseError(node, _error.ModbvRange, n)
-        tracejbdedent()
-        tracenode()
 
     def setAttr(self, node):
-        tracejb(node, '_AnalyzeVisitor - setAttr')
         if node.attr != 'next':
             self.raiseError(node, _error.NotSupported, "attribute assignment, forgotten '.next'?")
-        logjbinspect(node.value, 'node.value', True)
         self.tree.kind = _kind.TASK
         # self.access = _access.OUTPUT
         self.visit(node.value)
         # self.access = _access.INPUT
-        tracejbdedent()
 
-    def getAttr(self, node):
-        tracejb(node, '_AnalyzeVisitor - getAttr')
-        logjbinspect(node, 'node', True)
-        logjbinspect(node.value, 'node.value', True)
-        
+    def getAttr(self, node):       
         self.visit(node.value)
-        
-        logjbinspect(node.value.obj, 'node.value.obj after visit', True)
-
         node.obj = None
         if isinstance(node.value, ast.Name):
             n = node.value.id
@@ -654,7 +537,6 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                 raise AssertionError("attribute target: %s" % n)
             
         obj = node.value.obj
-        logjb( obj , 'obj')
         if isinstance(obj, _Signal):
             if node.attr == 'posedge':
                 node.obj = obj.posedge
@@ -677,19 +559,14 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             assert hasattr(obj, node.attr), node.attr
             node.obj = getattr(obj, node.attr)
             if obj not in _enumTypeSet:
-#                 suf = _genUniqueSuffix.next()
-#                 obj._setName(n+suf)
                 obj._setName(n)
                 _enumTypeSet.add(obj)
-                logjbinspect( obj, 'obj is EnumType', True)
 
         
         if isinstance(obj, Array):
-            logjbinspect(node, 'isArray', True)
             node.obj = obj.element        
             
         if isinstance(obj, StructType):
-            logjbinspect(node, 'StructType', True)
             vargs = vars( obj )  
             for k in vargs:
 #                 if isinstance( vargs[k], _Signal) and node.attr == k:                          
@@ -699,26 +576,17 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         if isinstance(obj, list):
             _, _, _, node.obj = m1Dinfo(obj)
 
-        logjb( repr( node.obj ), 'getAttr returning node.obj')               
         if node.obj is None: # attribute lookup failed
             self.raiseError(node, _error.UnsupportedAttribute, node.attr)
-        tracejbdedent()
 
     def visit_Assign(self, node):
-        tracenode('Assign')
-        tracejb(node, '_AnalyzeVisitor - visit_Assign')
-        logjbinspect(node, 'node',  True)
         target, value = node.targets[0], node.value
-        logjbinspect(target, 'target', True)
-        logjbinspect(value, 'value', True)
         self.access = _access.OUTPUT
         self.visit(target)
-        logjb('returned from visit(target)')
         self.access = _access.INPUT
         # set attribute to detect a top-level rhs
         value.isRhs = True
         if isinstance(target, ast.Name) :
-            logjb('isinstance(target, ast.Name)')
             node.kind = _kind.DECLARATION
             self.kind = _kind.DECLARATION
             self.visit(value)
@@ -738,65 +606,42 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                 if not obj._hasFullRange():
                     self.raiseError(node, _error.ModbvRange, n)
             if n in self.tree.vardict:
-                logjb( n, 'n in self.tree.vardict')
                 # this fix 
 #                 if isinstance(obj, _Signal):
 #                     obj = obj._val
                     
                 curObj = self.tree.vardict[n]
-                logjbinspect( curObj, 'curObj', True)
-                logjbinspect( obj, 'obj', True)
                 if isinstance(obj, type(curObj)):
                     pass
                 elif isinstance(curObj, type(obj)):
                     self.tree.vardict[n] = obj
                 else:
-                    logjb( self.tree.vardict, 'self.tree.vardict')
                     self.raiseError(node, _error.TypeMismatch, n)
                 if getNrBits(obj) != getNrBits(curObj):
                     self.raiseError(node, _error.NrBitsMismatch, n)
             else:
                 self.tree.vardict[n] = obj
-                logjb(obj, 'self.tree.vardict[n] = obj', True)
-                logjb( n, 'n')
         else:
-            logjbinspect( value, 'self.visit(value)', True )
-            logjb( value.__class__.__name__, 'value.__class__.__name__')
             self.visit(value)
-        tracejbdedent()
-        tracenode()
 
     def visit_AugAssign(self, node):
         # declare node as an rhs for type inference optimization
-        tracenode('AugAssign')
-        tracejb(node, '_AnalyzeVisitor - visit_AugAssign')
         node.isRhs = True
         self.access = _access.INOUT
         self.visit(node.target)
         self.access = _access.INPUT
         self.visit(node.value)
-        tracejbdedent()
-        tracenode()
 
     def visit_Break(self, node):
-        tracenode('Break')
-        tracejb(node, '_AnalyzeVisitor - visit_Break')
         self.labelStack[-2].isActive = True
-        tracejbdedent()
-        tracenode()
 
     def visit_Call(self, node):
-        tracenode('Call')
-        tracejb(node, '_AnalyzeVisitor - visit_Call')
-        logjbinspect(node, 'node', True)
         self.visit(node.func)
         f = self.getObj(node.func)
-        logjb( f, 'f = self.getObj(node.func)')
         node.obj = None
 
         if f is print:
             self.visit_Print(node)
-            tracejbdedent()
             return
 
         self.access = _access.UNKNOWN
@@ -877,12 +722,8 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         if argsAreInputs:
             for arg in node.args:
                 self.visit(arg)
-        tracejbdedent()
-        tracenode()
 
     def visit_Compare(self, node):
-        tracenode( 'Compare')
-        tracejb(node, '_AnalyzeVisitor - visit_Compare')
         node.obj = bool()
         for n in [node.left] + node.comparators:
             self.visit(n)
@@ -907,12 +748,8 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                         node.edge = sig.negedge
                     elif v == 1:
                         node.edge = sig.posedge
-        tracejbdedent()
-        tracenode()
 
     def visit_Num(self, node):
-        tracenode('Num')
-        tracejb(node, '_AnalyzeVisitor - visit_Num')
         n = node.n
         # assign to value attribute for backwards compatibility
         node.value = n
@@ -922,27 +759,14 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             node.obj = n
         else:
             node.obj = None
-        tracejbdedent()
-        tracenode()
 
     def visit_Str(self, node):
-        tracenode('Str')
-        tracejb(node, '_AnalyzeVisitor - visit_Str')
         node.obj = node.s
-        tracejbdedent()
-        tracenode()
 
     def visit_Continue(self, node):
-        tracenode( 'Continue' )
-        tracejb(node, '_AnalyzeVisitor - visit_Continue')
         self.labelStack[-1].isActive = True
-        tracejbdedent()
-        tracenode()
 
     def visit_For(self, node):
-        tracenode( 'For')
-        tracejb(node, '_AnalyzeVisitor - visit_For')
-        logjbinspect(node, 'node', True)
         node.breakLabel = _Label("BREAK")
         node.loopLabel = _Label("LOOP")
         self.labelStack.append(node.breakLabel)
@@ -965,22 +789,12 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         self.require(node, not node.orelse, "for-else not supported")
         self.labelStack.pop()
         self.labelStack.pop()
-        tracejbdedent()
-        tracenode()
 
     def visit_FunctionDef(self, node):
-        tracenode( node.name, 'restart')
-        tracejb(node, '_AnalyzeVisitor - visit_FunctionDef')
         raise AssertionError("subclass must implement this")
-        tracejbdedent()
-        tracenode()
 
     def visit_If(self, node):
-        tracenode( 'If' )
-        tracejb(node, '_AnalyzeVisitor - visit_If')
         if node.ignore:
-            tracejbdedent()
-            tracenode()
             return
         for test, suite in node.tests:
             self.visit(test)
@@ -995,31 +809,21 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         node.isCase = node.isFullCase = False
         test1 = node.tests[0][0]
         if not hasattr(test1, 'case'):
-            tracejbdedent()
-            tracenode()
             return
         var1, item1 = test1.case
         # don't infer a case if there's no elsif test
         if not node.tests[1:]:
-            tracejbdedent()
-            tracenode()
             return
         choices = set()
         choices.add(item1)
 
         for test, suite in node.tests[1:]:
             if not hasattr(test, 'case'):
-                tracejbdedent()
-                tracenode()
                 return
             var, item = test.case
             if var.id != var1.id or type(item) is not type(item1):
-                tracejbdedent()
-                tracenode()
                 return
             if item in choices:
-                tracejbdedent()
-                tracenode()
                 return
             choices.add(item)
         node.isCase = True
@@ -1028,29 +832,16 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         if node.else_ or (len(choices) == _getNritems(var1.obj)) :
 #         if (len(choices) == _getNritems(var1.obj)) or node.else_  :
             node.isFullCase = True
-        tracejbdedent()
-        tracenode()
 
     def visit_IfExp(self, node):
-        tracenode( 'IfExp' )
-        tracejb(node, '_AnalyzeVisitor - visit_IfExp')
-        logjbinspect(node, 'node', True)
-        logjbinspect(node.test, 'node.test', True)
         self.visit(node.test)
-        logjbinspect(node.body, 'node.body', True)
         self.visit(node.body)
-        logjbinspect(node.orelse, 'node.orelse', True)
         self.visit(node.orelse)
 #         self.refStack.push()
 #         self.visitList(node.else_)
 #         self.refStack.pop()        
-        tracejbdedent()
-        tracenode()
-
         
     def visit_ListComp(self, node):
-        tracenode( 'ListComp' )
-        tracejb(node, '_AnalyzeVisitor - visit_ListComp')
         mem = node.obj = _Ram()
         self.kind = _kind.DECLARATION
         try:
@@ -1072,32 +863,20 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         if f is not range or len(cf.args) != 1:
             self.raiseError(node, _error.UnsupportedListComp)
         mem.depth = cf.args[0].obj
-        tracejbdedent()
-        tracenode()
 
     def visit_NameConstant(self, node):
         node.obj = node.value
 
     def visit_Name(self, node):
-        tracenode( 'Name' )
-        tracejb(node, '_AnalyzeVisitor - visit_Name')
         if isinstance(node.ctx, ast.Store):
             self.setName(node)
         else:
             self.getName(node)
-        tracejbdedent()
-        tracenode()
 
     def setName(self, node):
-        tracejb(node, '_AnalyzeVisitor - setName')
         # XXX INOUT access in Store context, unlike with compiler
         # XXX check whether ast context is correct
-#         for item in inspect.getmembers(node):
-#             if not item[0].startswith('__') and not item[0].endswith('__') :
-#                 logjb( item, ' '  )
-        logjbinspect(node, 'node', True)
         n = node.id
-        logjb( n , 'n')
         if self.access == _access.INOUT: # augmented assign
             if n in self.tree.sigdict:
                 sig = self.tree.sigdict[n]
@@ -1111,7 +890,6 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                     obj = int(-1)
                     self.tree.vardict[n] = obj
                 node.obj = obj
-                logjb( repr(node.obj), 'node.obj')
         else:
             if n in ("__verilog__", "__vhdl__"):
                     self.raiseError(node, _error.NotSupported,
@@ -1119,13 +897,9 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             if n in self.globalRefs:
                 self.raiseError(node, _error.UnboundLocal, n)
             self.refStack.add(n)
-        tracejbdedent()
 
     def getName(self, node):
-        tracejb(node, '_AnalyzeVisitor - getName')
-        logjbinspect(node, 'node', True)
         n = node.id
-        logjb( n, 'node.id')
         node.obj = None
         if n not in self.refStack:
             if (n in self.tree.vardict) and (n not in self.tree.nonlocaldict):
@@ -1167,18 +941,13 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             node.obj = obj
             
         elif n in self.tree.symdict:
-            logjb( n, 'n in self.tree.symdict')
             node.obj = self.tree.symdict[n]
-            logjb( node.obj, 'node.obj = self.tree.symdict[n]')
-            
             if _isTupleOfInts(node.obj):
                 node.obj = _Rom(node.obj)
                 self.tree.hasRom = True
                 
             elif _isMem(node.obj):
-                logjb( node.obj, '_isMem(node.obj')
                 m = _getMemInfo(node.obj)
-                logjbinspect( m, 'm = _getMemInfo(node.obj)', True)
                 if self.access == _access.INPUT:
                     m._read = True
                 elif self.access == _access.OUTPUT:
@@ -1186,10 +955,8 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                     self.tree.outmems.add(n)
                 elif self.access == _access.UNKNOWN:
                     pass
-                    logjb( 'self.access == _access.UNKNOWN')
                 else:
                     assert False, "unexpected mem access %s %s" % (n, self.access)
-                logjbinspect( m, 'm = _getMemInfo(node.obj)', True)
                 self.tree.hasLos = True
             elif isinstance(node.obj, int):
                 node.value = node.obj
@@ -1197,23 +964,14 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                 # hack: put nonlocal intbv's in the vardict
                 self.tree.vardict[n] = v = node.obj
         elif n in builtins.__dict__:
-            logjb('n in builtins.__dict__')
             node.obj = builtins.__dict__[n]
         else:
             self.raiseError(node, _error.UnboundLocal, n)
-        logjb( repr(node.obj) , 'node.obj')
-        tracejbdedent()
 
     def visit_Return(self, node):
-        tracenode( 'Return' )
-        tracejb(node, '_AnalyzeVisitor - visit_Return')
         self.raiseError(node, _error.NotSupported, "return statement")
-        tracejbdedent()
-        tracenode()
 
     def visit_Print(self, node):
-        tracenode( 'Print' )
-        tracejb(node, '_AnalyzeVisitor - visit_Print')
         self.tree.hasPrint = True
         f = []
         nr = 0
@@ -1273,25 +1031,16 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         if len(node.args) > nr:
             self.raiseError(node, _error.FormatString, "too many arguments")
         self.generic_visit(node)
-        tracejbdedent()
-        tracenode()
 
     def visit_Subscript(self, node):
-        tracenode( 'Subscript' )
-        tracejb(node, '_AnalyzeVisitor - visit_Subscript')
         if isinstance(node.slice, ast.Slice):
             self.accessSlice(node)
         else:
             self.accessIndex(node)
-        tracejbdedent()
-        tracenode()
 
     def accessSlice(self, node):
-        tracejb(node, '_AnalyzeVisitor - accessSlice')
-        logjbinspect(node, 'node', True)
         self.visit(node.value)
         node.obj = self.getObj(node.value)
-        logjb( repr(node.obj) , 'node.obj')
         self.access = _access.INPUT
         lower, upper = node.slice.lower, node.slice.upper
         if lower:
@@ -1308,7 +1057,6 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                     rightind = 0
                 node.obj = node.obj[leftind:rightind]
         elif isinstance(node.obj, Array):
-            logjb( 'isArray')
             if lower:
                 leftind = self.getVal(lower)
             else:
@@ -1320,24 +1068,18 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                 rightind =  node.obj._sizes[0]
             node.obj = node.obj[leftind:rightind]
             
-        logjbinspect( repr(node.obj) , 'node.obj', False)
-        tracejbdedent()
 
     def accessIndex(self, node):
-        tracejb(node, '_AnalyzeVisitor - accessIndex')
-        logjbinspect(node, 'node', True)
         self.visit(node.value)
         self.access = _access.INPUT
         self.visit(node.slice.value)
         
-        logjbinspect(node.value.obj, 'checking node.value.obj', True)
         if isinstance(node.value.obj, _Ram):
             if isinstance(node.ctx, ast.Store):
                 self.raiseError(node, _error.ListElementAssign)
             else:
                 node.obj = node.value.obj.elObj
         elif _isMem(node.value.obj) or isinstance(node.value.obj, (list, Array)):
-            logjbinspect( node.value.obj, 'node.value.obj _AnalyzeVisitor - accessIndex', True)
             node.obj = node.value.obj[0]
             
         elif isinstance(node.value.obj, _Rom):
@@ -1346,19 +1088,11 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             node.obj = bool()
         else:
             node.obj = bool() # XXX default
-        logjbinspect(node.obj, '_AnalyzeVisitor - accessIndex node.obj', True)
-        tracejbdedent()
 
     def visit_Tuple(self, node):
-        tracenode( 'Tuple' )
-        tracejb(node, '_AnalyzeVisitor - visit_Tuple')
         self.generic_visit(node)
-        tracejbdedent()
-        tracenode()
 
     def visit_While(self, node):
-        tracenode( 'While' )
-        tracejb(node, '_AnalyzeVisitor - visit_While')
         node.breakLabel = _Label("BREAK")
         node.loopLabel = _Label("LOOP")
         self.labelStack.append(node.breakLabel)
@@ -1380,12 +1114,8 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         self.require(node, not node.orelse, "while-else not supported")
         self.labelStack.pop()
         self.labelStack.pop()
-        tracejbdedent()
-        tracenode()
 
     def visit_Yield(self, node, *args):
-        tracenode( 'Yield' )
-        tracejb(node, '_AnalyzeVisitor - visit_Yield')
         self.tree.hasYield += 1
         n = node.value
         self.visit(n)
@@ -1395,7 +1125,6 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                 if not isinstance(n.obj, (_Signal, _WaiterList)):
                     self.raiseError(node, _error.UnsupportedYield)
                 senslist.append(n.obj)
-#                 logjb( n.obj, 'append')
         elif isinstance(n.obj, (_Signal, _WaiterList, myhdl.delay)):
             senslist = [n.obj]
         elif _isMem(n.obj):
@@ -1403,8 +1132,6 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         else:
             self.raiseError(node, _error.UnsupportedYield)
         node.senslist = senslist
-        tracejbdedent()
-        tracenode()
 
 
 class _AnalyzeBlockVisitor(_AnalyzeVisitor):
@@ -1417,9 +1144,6 @@ class _AnalyzeBlockVisitor(_AnalyzeVisitor):
 
 
     def visit_FunctionDef(self, node):
-        tracenode(node.name, 'restart' )
-
-        tracejb(node, '_AnalyzeBlockVisitor - visit_FunctionDef')
         self.refStack.push()
         for n in node.body:
             self.visit(n)
@@ -1433,32 +1157,21 @@ class _AnalyzeBlockVisitor(_AnalyzeVisitor):
             if not self.getKind(w) == _kind.ALWAYS:
                 self.tree.kind = _kind.INITIAL
         self.refStack.pop()
-        tracejbdedent()
-        tracenode()
 
 
     def visit_Module(self, node):
-        tracenode( 'Module' )
-        tracejb(node, '_AnalyzeBlockVisitor - visit_Module')
-        logjbinspect(node, 'node', True)
         self.generic_visit(node)
         for n in self.tree.outputs:
-            logjb( n , 'n', True)
             s = self.tree.sigdict[n]
-            logjb( s , 's')
             if s._driven:
                 self.raiseError(node, _error.SigMultipleDriven, n)
             s._driven = "reg"
         for n in self.tree.inputs:
             s = self.tree.sigdict[n]
             s._markRead()
-        tracejbdedent()
-        tracenode()
 
 
     def visit_Return(self, node):
-        tracenode( 'Return' )
-        tracejb(node, '_AnalyzeBlockVisitor - visit_Return')
         ### value should be None
         if node.value is None:
             pass
@@ -1466,8 +1179,6 @@ class _AnalyzeBlockVisitor(_AnalyzeVisitor):
             pass
         else:
             self.raiseError(node, _error.NotSupported, "return value other than None")
-        tracejbdedent()
-        tracenode()
 
 
 
@@ -1480,8 +1191,6 @@ class _AnalyzeAlwaysCombVisitor(_AnalyzeBlockVisitor):
 
 
     def visit_FunctionDef(self, node):
-        tracenode( node.name, 'restart' )
-        tracejb(node, '_AnalyzeAlwaysCombVisitor - visit_FunctionDef')
         self.refStack.push()
         for n in node.body:
             self.visit(n)
@@ -1495,7 +1204,6 @@ class _AnalyzeAlwaysCombVisitor(_AnalyzeBlockVisitor):
                 pass
             else:
                 self.tree.kind = _kind.ALWAYS_COMB
-                tracejbdedent()
                 return
         # rom access is expanded into a case statement in addition
         # to any always_comb that contains a list of signals
@@ -1503,15 +1211,11 @@ class _AnalyzeAlwaysCombVisitor(_AnalyzeBlockVisitor):
         if self.tree.hasRom:
             self.tree.kind = _kind.ALWAYS_COMB
         self.refStack.pop()
-        tracejbdedent()
-        tracenode()
 
 
 
 
     def visit_Module(self, node):
-        tracenode( 'Module' )
-        tracejb(node, '_AnalyzeAlwaysCombVisitor - visit_Module')
         _AnalyzeBlockVisitor.visit_Module(self, node)
         if self.tree.kind == _kind.SIMPLE_ALWAYS_COMB:
             for n in self.tree.outputs:
@@ -1520,8 +1224,6 @@ class _AnalyzeAlwaysCombVisitor(_AnalyzeBlockVisitor):
             for n in self.tree.outmems:
                 m = _getMemInfo(self.tree.symdict[n])
                 m._driven = "wire"
-        tracejbdedent()
-        tracenode()
 
 
 class _AnalyzeAlwaysSeqVisitor(_AnalyzeBlockVisitor):
@@ -1535,15 +1237,11 @@ class _AnalyzeAlwaysSeqVisitor(_AnalyzeBlockVisitor):
 
 
     def visit_FunctionDef(self, node):
-        tracenode(node.name, 'restart' )
-        tracejb(node, '_AnalyzeAlwaysSeqVisitor - visit_FunctionDef')
         self.refStack.push()
         for n in node.body:
             self.visit(n)
         self.tree.kind = _kind.ALWAYS_SEQ
         self.refStack.pop()
-        tracejbdedent()
-        tracenode()
 
 
 class _AnalyzeAlwaysDecoVisitor(_AnalyzeBlockVisitor):
@@ -1554,15 +1252,11 @@ class _AnalyzeAlwaysDecoVisitor(_AnalyzeBlockVisitor):
 
 
     def visit_FunctionDef(self, node):
-        tracenode(node.name, 'restart' )
-        tracejb(node, '_AnalyzeAlwaysDecoVisitor - visit_FunctionDef')
         self.refStack.push()
         for n in node.body:
             self.visit(n)
         self.tree.kind = _kind.ALWAYS_DECO
         self.refStack.pop()
-        tracejbdedent()
-        tracenode()
 
 
 
@@ -1577,19 +1271,15 @@ class _AnalyzeFuncVisitor(_AnalyzeVisitor):
 
 
     def visit_FunctionDef(self, node):
-        tracenode(node.name, 'restart' )
-        tracejb(node, '_AnalyzeFuncVisitor - visit_FunctionDef')
         self.refStack.push()
         argnames = _get_argnames(node)
         for i, arg in enumerate(self.args):
             n = argnames[i]
             self.tree.symdict[n] = self.getObj(arg)
-            logjb( self.tree.symdict, 'tree.symdict')
             self.tree.argnames.append(n)
         for kw in self.keywords:
             n = kw.arg
             self.tree.symdict[n] = self.getObj(kw.value)
-            logjb( self.tree.symdict, 'tree.symdict')
             self.tree.argnames.append(n)
         for n, v in self.tree.symdict.items():
             if isinstance(v, (_Signal, myhdl.intbv)):
@@ -1608,13 +1298,9 @@ class _AnalyzeFuncVisitor(_AnalyzeVisitor):
             if self.tree.returnObj is None:
                 self.raiseError(node, _error.NotSupported,
                                 "pure function without return value")
-        tracejbdedent()
-        tracenode()
 
 
     def visit_Return(self, node):
-        tracenode( 'Return' )
-        tracejb(node, '_AnalyzeFuncVisitor - visit_Return')
         self.kind = _kind.DECLARATION
         if node.value is not None:
             self.visit(node.value)
@@ -1642,8 +1328,6 @@ class _AnalyzeFuncVisitor(_AnalyzeVisitor):
         else:
             self.tree.returnObj = obj
             self.tree.hasReturn = True
-        tracejbdedent()
-        tracenode()
 
 
 ismethod = inspect.ismethod
@@ -1713,11 +1397,8 @@ class _AnalyzeTopFuncVisitor(_AnalyzeVisitor):
         self.argnames = []
 
     def visit_FunctionDef(self, node):
-        tracejb(node, '_AnalyzeTopFuncVisitor - visit_FunctionDef')
-        logjbinspect(node, 'node', True)
         self.name = node.name
         self.argnames = _get_argnames(node)
-        logjb( self.argnames, 'self.argnames')
         if isboundmethod(self.func):
             if not self.argnames[0] == 'self':
                 self.raiseError(node, _error.NotSupported,
@@ -1725,11 +1406,8 @@ class _AnalyzeTopFuncVisitor(_AnalyzeVisitor):
             # skip self
             self.argnames = self.argnames[1:]
         i=-1
-        logjb(self.args, 'self.args')
-        logjb( 'for i, arg in enumerate(self.args):')
         for i, arg in enumerate(self.args):
             n = self.argnames[i]
-            logjb( n, 'self.argnames[i]')
             self.fullargdict[n] = arg
             if isinstance(arg, _Signal):
                 self.argdict[n] = arg
@@ -1740,8 +1418,6 @@ class _AnalyzeTopFuncVisitor(_AnalyzeVisitor):
                     self.raiseError(node, _error.ListAsPort, n)
 #                 self.raiseError(node, _error.ListAsPort, n)
                 
-            logjb(self.argdict, 'self.argdict')
-        logjb( 'for n in self.argnames[i+1:]:')
         for n in self.argnames[i+1:]:
             if n in self.kwargs:
                 arg = self.kwargs[n]
@@ -1751,4 +1427,3 @@ class _AnalyzeTopFuncVisitor(_AnalyzeVisitor):
                 if _isMem(arg):
                     self.raiseError(node, _error.ListAsPort, n)
         self.argnames = [n for n in self.argnames if n in self.argdict]
-        tracejbdedent()

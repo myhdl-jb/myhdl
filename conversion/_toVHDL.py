@@ -57,24 +57,6 @@ from myhdl._ShadowSignal import _TristateSignal, _TristateDriver
 from myhdl._misc import m1Dinfo
 from myhdl._structured import Array, StructType
 
-# tracing the poor man's way
-from myhdl.tracejbdef import TRACEJBDEFS
-DO_INSPECT = False
-if TRACEJBDEFS['_toVHDL']:
-    from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect, tracenode, logjbwr
-else:
-    def tracejb( a, b = None):
-        pass
-    def logjb(a, b = None, c = False):
-        pass
-    def tracejbdedent():
-        pass
-    def logjbinspect(a, b= None, c = False):
-        pass
-    def tracenode( a = None, b = None):
-        pass
-    def logjbwr( a ):
-        pass
 
 _version = myhdl.__version__.replace('.','')
 _shortversion = _version.replace('dev','')
@@ -158,9 +140,6 @@ class _ToVHDLConvertor(object):
         else:
             name = str(self.name)
         try:
-            logjb( name, 'name', True)
-            logjb( func, 'func')
-            logjb( '_HierExtr')
             h = _HierExtr(name, func, *args, **kwargs)
         finally:
             _converting = 0
@@ -200,7 +179,6 @@ class _ToVHDLConvertor(object):
         intf.name = name
         # sanity checks on interface
         for portname in intf.argnames:
-            logjb( portname, 'portname')
             s = intf.argdict[portname]
             if  isinstance(s, StructType):
                 pass
@@ -354,7 +332,6 @@ portConversions = []
 suppressedWarnings = []
 
 def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPorts):
-    tracejb("_ToVHDLConvertor: " + '_writeModuleHeader')
     print("library IEEE;", file=f)
     print("    use IEEE.std_logic_1164.all;", file=f)
     print("    use IEEE.numeric_std.all;", file=f)
@@ -372,7 +349,6 @@ def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPor
         print("    use %s.pck_%s.all;" % (lib, intf.name), file=f)
         print(file=f)
     print("entity %s is" % intf.name, file=f)
-    logjb( stdLogicPorts , 'stdLogicPorts')
     del portConversions[:]
     pl = []
     if intf.argnames:
@@ -380,7 +356,6 @@ def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPor
         c = ''
         for portname in intf.argnames:
             s = intf.argdict[portname]
-            logjb(s, 's')
             if isinstance(s, StructType):
                 # expand the structure
                 # and add assignments
@@ -436,7 +411,6 @@ def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPor
     print(file=f)
     print("architecture %s of %s is" % (arch, intf.name), file=f)
     print(file=f)
-    tracejbdedent()
 
 expandlevel = 2
 def expandStructType(c, stdLogicPorts, pl, name, obj):
@@ -493,7 +467,6 @@ def _writeFuncDecls(f):
     return
 
 def _writeConstants(f, memlist):
-    tracejb( "_ToVHDLConvertor: _writeConstants: " )
     f.write("\n")
     cl = []
    
@@ -502,14 +475,12 @@ def _writeConstants(f, memlist):
             continue
         if m._driven or not m._read:
             continue
-        logjb(m.name , 'm.name')
         # drill down into the list
         cl.append( "    constant {} : {} := ( {} );\n" .format(m.name, m._typedef, expandconstant( m.mem )))
         
     for l in sortalign( cl, sort = True ):
         f.write( l )        
     f.write("\n")
-    tracejbdedent()
 
 def expandconstant( c  ):
     if isinstance(c, StructType):
@@ -676,14 +647,12 @@ def addstructuredtypedef( obj ):
 
 
 def _writeTypeDefs(f, memlist):
-    tracejb("_ToVHDLConvertor: " +  "_writeTypeDefs: " )
     f.write("\n")
     # write the enums
     sortedList = list(_enumTypeSet)
     sortedList.sort(key=lambda x: x._name)
     enumused = []
     for t in sortedList:
-        logjb( t )
         if t._name not in enumused:
             enumused.append( t._name )
             tt = "%s\n" % t._toVHDL()
@@ -693,12 +662,9 @@ def _writeTypeDefs(f, memlist):
     for m in memlist:
         if not m._used or m.usagecount == 0:
             continue
-        logjb( m.name, 'm', True)
-        logjb( m.mem, 'm.mem')
         # infer attributes for the case of named signals in a list
 #         print( 'inferattrs', m.name, m._driven, m._read, repr( m ))
         inferattrs( m, m.mem)
-        logjb(m.name , 'm.name')
 #         print( 'returned' , m.name, m._driven, m._read)
             
         if m.depth == 1 and isinstance(m.elObj, StructType):
@@ -736,27 +702,21 @@ def _writeTypeDefs(f, memlist):
         
     typedefs.write(f)    
     f.write("\n")
-    tracejbdedent()
 
 constwires = []
 typedefs = _typedef()
 functiondefs = []
 
 def _writeSigDecls(f, intf, siglist, memlist):
-    tracejb("_ToVHDLConvertor: " +  "_writeSigDecls: " )
     del constwires[:]
     typedefs.clear()
     del functiondefs[:]
     sl = []
-    logjb(siglist, 'siglist')
     for s in siglist:
         if not s._used:
-            logjb( s, 'not used')
             continue
         if s._name in intf.argnames:
-            logjb(s._name , 's._name in intf.argnames')
             continue
-        logjb(s)
         r = _getRangeString(s)
         p = _getTypeString(s)
         if s._driven or s._read:
@@ -792,15 +752,12 @@ def _writeSigDecls(f, intf, siglist, memlist):
             continue
 
         if not m._driven:
-            logjb(m.name , 'm.name is not driven')
             continue
         
         if not m._read:
-            logjb(m.name , 'm.name is not driven nor read')
             continue
             
 
-        logjb(m.name , ' is driven')
         if isinstance(m.mem, Array):
             if m.mem._initialised:
                 sl.append("    signal {} : {} := ({});" .format(m.name, m._typedef, expandarray(m.mem)))
@@ -839,7 +796,6 @@ def _writeSigDecls(f, intf, siglist, memlist):
     for l in sortalign( sl , sort = True ):
         print( l , file = f)
     print(file=f)
-    tracejbdedent()
 
 
 def sortalign( sl , sort = False, port = False):
@@ -922,11 +878,11 @@ def inferattrs( m, mem):
         # lowest (= last) level of m1D
         for s in mem:
 #             print( 'inferring' , s, s._driven, s._read)
-#             if hasattr(m, '_driven') and hasattr(s, '_driven'):
-            if not m._driven and s._driven:
-                m._driven = s._driven
-            if not m._read and s._read:
-                m._read = s._read
+            if hasattr(m, '_driven') and hasattr(s, '_driven'):
+                if not m._driven and s._driven:
+                    m._driven = s._driven
+                if not m._read and s._read:
+                    m._read = s._read
              
 
 
@@ -988,7 +944,6 @@ def _getTypeString(s):
     return r
 
 def _convertGens(genlist, siglist, memlist, vfile):
-    tracejb("_ToVHDLConvertor: " +  "_convertGens: " )
     blockBuf = StringIO()
     funcBuf = StringIO()
     for tree in genlist:
@@ -1007,9 +962,7 @@ def _convertGens(genlist, siglist, memlist, vfile):
             Visitor = _ConvertAlwaysSeqVisitor
         else: # ALWAYS_COMB
             Visitor = _ConvertAlwaysCombVisitor
-        logjb( Visitor , 'Visitor')
         v = Visitor(tree, blockBuf, funcBuf)
-        logjb( tree, 'tree')
         v.visit(tree)
     vfile.write(funcBuf.getvalue()); funcBuf.close()
     print("begin", file=vfile)
@@ -1050,7 +1003,6 @@ def _convertGens(genlist, siglist, memlist, vfile):
                         print(r, file=vfile)
     print(file=vfile)
     vfile.write(blockBuf.getvalue()); blockBuf.close()
-    tracejbdedent()
 
 
 opmap = {
@@ -1101,7 +1053,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
 #         tracejb( "_ConvertVisitor: write" )
         self.buf.write("%s" % arg)
         self.line += "%s" % arg
-        logjbwr( 'line: {}' .format(self.line))
 #         tracejbdedent()
 
     def writeline(self, nr=1):
@@ -1121,25 +1072,18 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
 #         tracejbdedent()
 
     def IntRepr(self, obj):
-        tracejb( "_ConvertVisitor: IntRepr" )
         if obj >= 0:
             s = "%s" % int(obj)
         else:
             s = "(- %s)" % abs(int(obj))
-        tracejbdedent()
         return s
 
 
     def BitRepr(self, item, var):
-        tracejb( "_ConvertVisitor: BitRepr" )
-        tracejbdedent()
         return 'b"%s"' % bin(item, len(var), True)
 
 
     def inferCast(self, vhd, ori):
-        tracejb( "_ConvertVisitor: inferCast" )
-        logjbinspect( vhd, 'inspect vhd', True)
-        logjbinspect( ori, 'inspect ori', True)
         pre, suf = "", ""
         if isinstance(vhd, vhd_int):
             if not isinstance(ori, vhd_int):
@@ -1185,22 +1129,17 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             if not isinstance(ori, vhd_enum):
                 pre, suf = "%s'pos(" % vhd._type._name, ")"
 
-        logjb( '<' + pre + '>, <' + suf + '>', 'inferred')
-        tracejbdedent()
         return pre, suf
 
 
     def writeIntSize(self, n):
-        tracejb( "_ConvertVisitor: writeIntSize" )
         # write size for large integers (beyond 32 bits signed)
         # with some safety margin
         if n >= 2**30:
             size = int(math.ceil(math.log(n+1,2))) + 1  # sign bit!
             self.write("%s'sd" % size)
-        tracejbdedent()
 
     def writeDeclaration(self, obj, name, kind="", dir="", endchar=";", constr=True):
-        tracejb( "_ConvertVisitor: writeDeclaration" )
         if isinstance(obj, EnumItemType):
             tipe = obj._type._name
             
@@ -1246,10 +1185,8 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         if kind: kind += " "
         if dir: dir += " "
         self.write("%s%s: %s%s%s" % (kind, name, dir, tipe, endchar))
-        tracejbdedent()
 
     def writeDeclarations(self):
-        tracejb( "_ConvertVisitor: writeDeclarations" )
         if self.tree.hasPrint:
             self.writeline()
             self.write("variable L: line;")
@@ -1258,21 +1195,14 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 continue # hack for loop vars
             self.writeline()
             self.writeDeclaration(obj, name, kind="variable")
-        tracejbdedent()
 
     def indent(self):
-        tracejb( "_ConvertVisitor: indent" )
         self.ind += ' ' * 4
-        tracejbdedent()
 
     def dedent(self):
-        tracejb( "_ConvertVisitor: dedent" )
         self.ind = self.ind[:-4]
-        tracejbdedent()
 
     def visit_BinOp(self, node):
-        tracenode( 'BinOp')
-        tracejb( "_ConvertVisitor: visit_BinOp" )
         if isinstance(node.op, (ast.LShift, ast.RShift)):
             self.shiftOp(node)
         elif isinstance(node.op, (ast.BitAnd, ast.BitOr, ast.BitXor)):
@@ -1283,18 +1213,10 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.visit(node.right)
         else:
             self.BinOp(node)
-        tracejbdedent()
-        tracenode()
 
     def inferBinaryOpCast(self, node, left, right, op):
-        tracejb( "_ConvertVisitor: inferBinaryOpCast" )
         ns, os = node.vhd.size, node.vhdOri.size
         ds = ns - os
-        logjb( left.vhd, 'left' , True)
-        logjb( left.vhdOri)
-        logjb( right.vhd, 'right', True)
-        logjb( right.vhdOri)
-        logjb( ds , 'ds')
         if ds > 0:
             if isinstance(left.vhd, vhd_vector) and isinstance(right.vhd, vhd_vector):
                 if isinstance(op, (ast.Add, ast.Sub)):
@@ -1335,29 +1257,18 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         pre, suf = self.inferCast(node.vhd, node.vhdOri)
         if pre == "":
             pre, suf = "(", ")"
-        logjb( (pre, suf), 'pre, suf')
-        tracejbdedent()
         return pre, suf
 
 
     def BinOp(self, node):
-        tracejb( "_ConvertVisitor: BinOp" )
-        logjb( node.left.vhd, 'node.left.vhd', True)
-        logjb( node.right.vhd, 'node.right.vhd')
         pre, suf = self.inferBinaryOpCast(node, node.left, node.right, node.op)
         self.write(pre)
         self.visit(node.left)
         self.write(" %s " % opmap[type(node.op)])
         self.visit(node.right)
         self.write(suf)
-        tracejbdedent()
 
     def inferShiftOpCast(self, node, left, right, op):
-        tracejb( "_ConvertVisitor: inferShiftOpCast" )
-        logjbinspect(node, 'node', True)
-        logjbinspect(left, 'left', True)
-        logjbinspect(right, 'right', True)
-        logjbinspect(op, 'op', True)
         ns, os = node.vhd.size, node.vhdOri.size
         ds = ns - os
         if ds > 0:
@@ -1365,12 +1276,10 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 left.vhd.size = ns
                 node.vhdOri.size = ns
         pre, suf = self.inferCast(node.vhd, node.vhdOri)
-        tracejbdedent()
         return pre, suf
 
 
     def shiftOp(self, node):
-        tracejb( "_ConvertVisitor: shiftOp" )
         pre, suf = self.inferShiftOpCast(node, node.left, node.right, node.op)
         self.write(pre)
         self.write("%s(" % opmap[type(node.op)])
@@ -1379,10 +1288,8 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.visit(node.right)
         self.write(")")
         self.write(suf)
-        tracejbdedent()
 
     def BitOp(self, node):
-        tracejb( "_ConvertVisitor: BitOp" )
         pre, suf = self.inferCast(node.vhd, node.vhdOri)
         self.write(pre)
         self.write("(")
@@ -1391,11 +1298,8 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.visit(node.right)
         self.write(")")
         self.write(suf)
-        tracejbdedent()
 
     def visit_BoolOp(self, node):
-        tracenode( 'BoolOp')
-        tracejb( "_ConvertVisitor: visit_BoolOp" )
         if isinstance(node.vhd, vhd_std_logic):
             self.write("stdl")
         self.write("(")
@@ -1404,12 +1308,8 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.write(" %s " % opmap[type(node.op)])
             self.visit(n)
         self.write(")")
-        tracejbdedent()
-        tracenode()
 
     def visit_UnaryOp(self, node):
-        tracenode( 'UnaryOp')
-        tracejb( "_ConvertVisitor: visit_UnaryOp" )
 
         # in python3 a negative Num is represented as an USub of a positive Num
         # Fix: restore python2 behavior by a shortcut: invert value of Num, inherit
@@ -1427,13 +1327,8 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.visit(node.operand)
         self.write(")")
         self.write(suf)
-        tracejbdedent()
-        tracenode()
 
     def visit_Attribute(self, node):
-        tracenode( 'Attribute')
-        tracejb( "_ConvertVisitor: visit_Attribute" )
-        logjbinspect( node, 'node', True)
         if isinstance(node.ctx, ast.Store):
             self.setAttr(node)
         else:
@@ -1441,54 +1336,34 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         if node.attr in ('next',) :
             pass
         else:
-            logjbinspect( node, 'node after set-/get-Attr', True)
-            logjbinspect(node.value, 'node.value', True)
             if not isinstance(node.value.obj, EnumType):
                 if hasattr(node.value, 'id')  :
                     self.write( '{}.{}'.format( node.value.id, node.attr) )
                 else:
                     self.write( '.{}'.format(node.attr))
                 
-        tracejbdedent()
-        tracenode()
 
     def setAttr(self, node):
-        tracejb( "_ConvertVisitor: setAttr" )
-        logjbinspect(node, 'node', True)
         self.SigAss = True
         if isinstance(node.value, ast.Subscript):
-            logjbinspect(node.value, 'node.value', True)
             self.SigAss = 'Killroy'
-            logjb( self.SigAss, 'Killroy: self.SigAss')
             self.visit(node.value)
 
         else:
             assert node.attr == 'next'
             if isinstance(node.value, ast.Name):
-                logjb( node.value.id, 'node.value.id')
-                logjb(self.tree.symdict, 'self.tree.symdict' )
                 sig = self.tree.symdict[node.value.id]
-                logjbinspect( sig, 'sig', True)
                 if hasattr(sig, '_name'):
                     self.SigAss = sig._name
-            logjb( self.SigAss, 'self.SigAss', True)
-            logjb( node.value, 'node.value')
             self.visit(node.value)
             node.obj = self.getObj(node.value)
-        logjb( self.SigAss, 'self.SigAss')
-        tracejbdedent()
 
     def getAttr(self, node):
-        tracejb( "_ConvertVisitor: getAttr" )
-        logjbinspect(node, 'node', True)
         if isinstance(node.value, ast.Subscript):
             self.setAttr(node)
-            tracejbdedent()
             return
 
         if isinstance(node.value, ast.Attribute):
-#             self.write( " Killroy" )
-            logjbinspect( node.value, 'Killroy: node.value', True)
             self.visit( node.value )
             
         else:
@@ -1501,12 +1376,10 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             else:
                 raise AssertionError("object not found")
             
-            logjbinspect(obj, 'obj', True)
             if isinstance(obj, _Signal):
                 if node.attr == 'next':
                     sig = self.tree.symdict[node.value.id]
                     self.SigAss = obj._name
-                    logjb( self.SigAss, 'self.SigAss next <-')
                     self.visit(node.value)
                 elif node.attr == 'posedge':
                     self.write("rising_edge(")
@@ -1523,8 +1396,8 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                     self.write(suf)
                     
             elif isinstance(obj, StructType):
-                logjbinspect(node.value, 'node.value', True)
-                    
+                    pass
+                
             if isinstance(obj, (_Signal, intbv)):
                 if node.attr in ('min', 'max'):
                     self.write("%s" % node.obj)
@@ -1534,11 +1407,8 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 e = getattr(obj, node.attr)
                 self.write(e._toVHDL())
             
-        tracejbdedent()
 
     def visit_Assert(self, node):
-        tracenode( 'Assert')
-        tracejb( "_ConvertVisitor: visit_Assert" )
         # XXX
         self.write("assert ")
         self.visit(node.test)
@@ -1548,33 +1418,10 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.writeline()
         self.write("severity error;")
         self.dedent()
-        tracejbdedent()
-        tracenode()
 
     def visit_Assign(self, node):
-        tracenode( 'Assign')
-        tracejb( "_ConvertVisitor: visit_Assign" )
-        logjbinspect(node , 'node')
-        for item in inspect.getmembers(node):
-            if item[0] in( 'targets', 'value'):
-                logjbinspect(item[1] , 'node.' + item[0])
-                for iitem in inspect.getmembers(item[1]):
-                    if iitem[0] in( 'obj'):
-                        logjbinspect(iitem[1] , 'node.' + item[0] + '.' + iitem[0])
         lhs = node.targets[0]
         rhs = node.value
-        logjbinspect( lhs, 'lhs', True)
-        for item in inspect.getmembers(lhs):
-            if item[0] in( 'obj', 'value', 'vhd'):
-                logjbinspect(item[1] , 'lhs.' + item[0])
-                for iitem in inspect.getmembers(item[1]):
-                    if iitem[0] in( 'obj'):
-                        logjbinspect(iitem[1] , 'lhs.' + item[0] + '.' + iitem[0])
-
-        logjbinspect( rhs, 'rhs', DO_INSPECT)
-        for item in inspect.getmembers(rhs):
-            if item[0] == 'obj':
-                logjbinspect(item[1], 'rhs.obj')
         # shortcut for expansion of ROM in case statement
         if isinstance(node.value, ast.Subscript) and \
                 isinstance(node.value.slice, ast.Index) and \
@@ -1592,13 +1439,10 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 else:
                     self.write("when %s => " % i)
                 self.visit(lhs)
-                logjb( self.SigAss, 'self.SigAss')
                 if self.SigAss:
                     self.write(' <= ')
                     self.SigAss = False
-                    logjb( self.SigAss, 'self.SigAss <-')
                 else:
-                    logjb( 'SigAss is None?')
                     self.write(' := ')
                 if isinstance(lhs.vhd, vhd_std_logic):
                     self.write("'%s';" % n)
@@ -1609,48 +1453,33 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.dedent()
             self.writeline()
             self.write("end case;")
-            tracejbdedent()
-            tracenode()
             return
 
         elif isinstance(node.value, ast.ListComp):
             # skip list comprehension assigns for now
-            tracejbdedent()
-            tracenode()
             return
 
         # default behavior
         convOpen, convClose = "", ""
-        logjbinspect( lhs.vhd, 'lhs.vhd')
         if isinstance(lhs.vhd, vhd_type):
             rhs.vhd = lhs.vhd
         self.isLhs = True
         self.visit( lhs )
         self.isLhs = False
-        logjb( self.SigAss, 'self.SigAss')
         if self.SigAss:
-            logjbinspect(lhs.value, 'lhs.value', True)
             if isinstance(lhs.value, ast.Name):
                 sig = self.tree.symdict[lhs.value.id]
             self.write(' <= ')
             self.SigAss = False
         else:
-            logjb( 'SigAss is None?')
             self.write(' := ')
-        logjb( convOpen, 'convOpen')
         self.write(convOpen)
         # node.expr.target = obj = self.getObj(node.nodes[0])
-        logjbinspect( rhs , 'rhs', True)
         self.visit(rhs)
-        logjb( convClose, 'convClose')
         self.write(convClose)
         self.write(';')
-        tracejbdedent()
-        tracenode()
 
     def visit_AugAssign(self, node):
-        tracenode( 'AugAssign')
-        tracejb( "_ConvertVisitor: visit_AugAssign" )
         # XXX apparently no signed context required for augmented assigns
         left, op, right =  node.target, node.op, node.value
         isFunc = False
@@ -1675,30 +1504,16 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.write(")")
         self.write(suf)
         self.write(";")
-        tracejbdedent()
-        tracenode()
 
     def visit_Break(self, node):
-        tracenode( 'Break')
-        tracejb( "_ConvertVisitor: visit_Break" )
-        logjbinspect(node, 'node', True)
         self.write("exit;")
-        tracejbdedent()
-        tracenode()
 
     def visit_Call(self, node):
-        tracenode( 'Call')
-        tracejb( "_ConvertVisitor: visit_Call" )
         fn = node.func
-        logjb( fn , 'node.func', True)
         # assert isinstance(fn, astNode.Name)
         f = self.getObj(fn)
-        logjb( f, 'self.getObj(fn)')
-
         if f is print:
             self.visit_Print(node)
-            tracejbdedent()
-            tracenode()
             return
 
         fname = ''
@@ -1713,8 +1528,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             val = self.getVal(node)
             self.require(node, val is not None, "cannot calculate len")
             self.write(repr(val))
-            tracejbdedent()
-            tracenode()
             return
         
         elif f is now:
@@ -1722,8 +1535,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.write(pre)
             self.write("(now / 1 ns)")
             self.write(suf)
-            tracejbdedent()
-            tracenode()
             return
         
         elif f is ord:
@@ -1748,8 +1559,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.write(pre)
             self.visit(arg)
             self.write(post)
-            tracejbdedent()
-            tracenode()
             return
         
         elif f == intbv.signed: # note equality comparison
@@ -1764,8 +1573,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.visit(arg)
             self.write(closing)
             self.write(suf)
-            tracejbdedent()
-            tracenode()
             return
         
         elif f == intbv.unsigned:
@@ -1779,8 +1586,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.visit(arg)
             self.write(closing)
             self.write(suf)
-            tracejbdedent()
-            tracenode()
             return
         
         elif (type(f) in class_types) and issubclass(f, Exception):
@@ -1791,8 +1596,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         elif f is delay:
             self.visit(node.args[0])
             self.write(" * 1 ns")
-            tracejbdedent()
-            tracenode()
             return
         
         elif f is concat:
@@ -1805,7 +1608,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         else:
 #             print( repr(f) )
             self.write(f.__name__)
-            logjb( f.__name__, 'f.__name__')
 
         if node.args:
             self.write(pre)
@@ -1824,17 +1626,11 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 Visitor = _ConvertTaskVisitor
             else:
                 Visitor = _ConvertFunctionVisitor
-                logjb( node.tree, '_ConvertFunctionVisitor' )
                 
             v = Visitor(node.tree, self.funcBuf)
             v.visit(node.tree)
-        tracejbdedent()
-        tracenode()
 
     def visit_Compare(self, node):
-        tracenode( 'Compare')
-        tracejb( "_ConvertVisitor: visit_Compare" )
-        logjbinspect(node, 'node', DO_INSPECT)
         n = node.vhd
         ns = node.vhd.size
         pre, suf = "(", ")"
@@ -1845,20 +1641,13 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         elif isinstance(n, vhd_signed):
             pre, suf = "to_signed(", ", %s)" % ns
         self.write(pre)
-        logjbinspect(node.left, 'node.left', DO_INSPECT)
-        logjbinspect(node.left.obj, 'node.left.obj', DO_INSPECT)
         self.visit(node.left)
         op, right = node.ops[0], node.comparators[0]
         self.write(" %s " % opmap[type(op)])
-        logjbinspect(right, 'right', DO_INSPECT)
         self.visit(right)
         self.write(suf)
-        tracejbdedent()
-        tracenode()
 
     def visit_Num(self, node):
-        tracenode( 'Num')
-        tracejb( "_ConvertVisitor: visit_Num" )
         n = node.n
         if isinstance(node.vhd, vhd_std_logic):
             self.write("'%s'" % n)
@@ -1882,52 +1671,32 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.write(n)
             if n < 0:
                 self.write(")")
-        tracejbdedent()
-        tracenode()
 
     def visit_Str(self, node):
-        tracenode( 'Str')
-        tracejb( "_ConvertVisitor: visit_Str" )
         typemark = 'string'
         if isinstance(node.vhd, vhd_unsigned):
             typemark = 'unsigned'
         self.write("%s'(\"%s\")" % (typemark, node.s))
-        tracejbdedent()
-        tracenode()
 
     def visit_Continue(self, node, *args):
-        tracenode( 'Continue')
-        tracejb( "_ConvertVisitor: visit_Continue" )
-        logjbinspect(node, 'node', DO_INSPECT)
-        logjb( args )
         self.write("next;")
-        tracejbdedent()
-        tracenode()
 
     def visit_Expr(self, node):
-        tracenode( 'Expr')
-        tracejb( "_ConvertVisitor: visit_Expr" )
         expr = node.value
         # docstrings on unofficial places
         if isinstance(expr, ast.Str):
             doc = _makeDoc(expr.s, self.ind)
             self.write(doc)
-            tracejbdedent()
             return
         # skip extra semicolons
         if isinstance(expr, ast.Num):
-            tracejbdedent()
             return
         self.visit(expr)
         # ugly hack to detect an orphan "task" call
         if isinstance(expr, ast.Call) and hasattr(expr, 'tree'):
             self.write(';')
-        tracejbdedent()
-        tracenode()
 
     def visit_IfExp(self, node):
-        tracenode( 'IfExpr')
-        tracejb( "_ConvertVisitor: visit_IfExp" )
         # propagate the node's vhd attribute  
         node.body.vhd = node.orelse.vhd = node.vhd
         self.write('tern_op(')
@@ -1938,12 +1707,8 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.write(', if_false => ')
         self.visit(node.orelse)
         self.write(')')
-        tracejbdedent()
-        tracenode()
 
     def visit_For(self, node):
-        tracenode( 'For')
-        tracejb( "_ConvertVisitor: visit_For" )
         self.labelStack.append(node.breakLabel)
         self.labelStack.append(node.loopLabel)
         var = node.target.id
@@ -2002,35 +1767,20 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
 ##             self.write("end")
         self.labelStack.pop()
         self.labelStack.pop()
-        tracejbdedent()
-        tracenode()
 
     def visit_FunctionDef(self, node):
-        tracenode( 'FunctionDef')
-        tracenode( node.name, 'restart')
-        tracejb( "_ConvertVisitor: visit_FunctionDef" )
-        logjbinspect(node, 'node', DO_INSPECT)
         raise AssertionError("To be implemented in subclass")
-        tracejbdedent()
-        tracenode()
 
     def visit_If(self, node):
-        tracenode( 'If')
-        tracejb( "_ConvertVisitor: visit_If" )
         if node.ignore:
-            tracejbdedent()
-            tracenode()
             return
         # only map to VHDL case if it's a full case
         if node.isFullCase:
             self.mapToCase(node)
         else:
             self.mapToIf(node)
-        tracejbdedent()
-        tracenode()
 
     def mapToCase(self, node):
-        tracejb( "_ConvertVisitor: mapToCase" )
         var = node.caseVar
         obj = self.getObj(var)
         self.write("case ")
@@ -2038,13 +1788,8 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.write(" is")
         self.indent()
         for i, (test, suite) in enumerate(node.tests):
-            logjb(i,'i', False)
-            logjbinspect( test, 'test', True)
-            logjbinspect( suite,'suite')
             self.writeline()
             item = test.case[1]
-            logjbinspect(item, 'item', True)
-            logjbinspect(obj, 'obj', True)
             if isinstance(item, EnumItemType):
                 itemRepr = item._toVHDL()
             elif hasattr(obj, '_nrbits'):
@@ -2074,14 +1819,10 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.dedent()
         self.writeline()
         self.write("end case;")
-        tracejbdedent()
 
     def mapToIf(self, node):
-        tracejb( "_ConvertVisitor: mapToIf" )
         first = True
         for test, suite in node.tests:
-            logjb( test, 'test', True)
-            logjb( suite,'suite')
             if first:
                 ifstring = "if "
                 first = False
@@ -2109,53 +1850,30 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.dedent()
         self.writeline()
         self.write("end if;")
-        tracejbdedent()
 
     def visit_ListComp(self, node):
-        tracenode( 'ListComp')
-        tracejb( "_ConvertVisitor: visit_ListComp" )
-        logjbinspect(node, 'node', DO_INSPECT)
-        tracejbdedent()
-        tracenode()
         pass # do nothing
 
 
     def visit_Module(self, node):
-        tracenode( 'Module')
-        tracejb( "_ConvertVisitor: visit_Module" )
         for stmt in node.body:
             self.visit(stmt)
-        tracejbdedent()
-        tracenode()
 
     def visit_NameConstant(self, node):
-        tracenode( 'NameConstant')
         node.id = str(node.value)
         self.getName(node)
-        tracenode()
 
     def visit_Name(self, node):
-        tracenode( 'Name')
-        tracejb( "_ConvertVisitor: visit_Name" )
-        logjbinspect( node, 'node', True)
         if isinstance(node.ctx, ast.Store):
             self.setName(node)
         else:
             self.getName(node)
-        tracejbdedent()
-        tracenode()
 
     def setName(self, node):
-        tracejb( "_ConvertVisitor: setName" )
         self.write(node.id)
-        tracejbdedent()
 
     def getName(self, node):
-        tracejb( "_ConvertVisitor: getName" )
         n = node.id
-        logjbinspect( node , 'node', True)
-        logjbinspect( node.obj , 'node.obj', True)
-        logjb(n, 'node.id')
         if n == 'False':
             if isinstance(node.vhd, vhd_std_logic):
                 s = "'0'"
@@ -2178,16 +1896,13 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         elif n in self.tree.vardict:
             s = n
             obj = self.tree.vardict[n]
-            logjb(obj, 'obj - self.tree.vardict[n]')
             ori = inferVhdlObj(obj)
             pre, suf = self.inferCast(node.vhd, ori)
             s = "%s%s%s" % (pre, s, suf)
 
         elif n in self.tree.argnames:
-            logjb( self.tree.argnames, 'self.tree.argnames')
             assert n in self.tree.symdict
             obj = self.tree.symdict[n]
-            logjbinspect(obj, 'obj - self.tree.argnames', DO_INSPECT)
             vhd = inferVhdlObj(obj)
             if isinstance(vhd, vhd_std_logic) and isinstance(node.vhd, vhd_boolean):
                 s = "(%s = '1')" %  n
@@ -2196,7 +1911,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 
         elif n in self.tree.symdict:
             obj = self.tree.symdict[n]
-            logjbinspect(obj, 'obj - self.tree.symdict[n]', True)
             s = n
             if isinstance(obj, bool):
                 if isinstance(node.vhd, vhd_std_logic):
@@ -2204,7 +1918,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 else:
                     s = "%s" % obj
             elif isinstance(obj, integer_types):
-                logjb( obj, 'isinstance(obj, integer_types')
                 if isinstance(node.vhd, vhd_int):
                     s = self.IntRepr(obj)
                 elif isinstance(node.vhd, vhd_boolean):
@@ -2223,7 +1936,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                         s = 'signed\'(b"%s")' % bin(obj, node.vhd.size, True)
                             
             elif isinstance(obj, _Signal):
-                logjb( obj, 'isinstance(obj, _Signal')
                 s = str(obj)
                 ori = inferVhdlObj(obj)
                 pre, suf = self.inferCast(node.vhd, ori)
@@ -2233,7 +1945,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 m = _getMemInfo(obj)
                 assert m.name
                 s = m.name
-                logjb(s, '_isMem(obj)')
 
             elif isinstance(obj, EnumItemType):
                 s = obj._toVHDL()
@@ -2242,13 +1953,11 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 s = n
                 
             elif isinstance(obj, list):
-                logjbinspect(obj, 'obj is list')
                 s = n
 #                 self.raiseError(node, _error.UnsupportedType, "%s, %s" % (n, type(obj)))
 
             # dead code?
             elif isinstance( obj, Array):
-                logjbinspect(obj, 'obj is Array')
                 s = n
 
             elif isinstance(obj, dict):
@@ -2260,22 +1969,13 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         else:
             raise AssertionError("name ref: %s" % n)
         self.write(s)
-        tracejbdedent()
 
     def visit_Pass(self, node):
-        tracenode( 'Pass')
-        tracejb( "_ConvertVisitor: visit_Pass" )
-        logjbinspect(node, 'node', DO_INSPECT)
         self.write("null;")
-        tracejbdedent()
-        tracenode()
 
     def visit_Print(self, node):
-        tracenode( 'Print')
-        tracejb( "_ConvertVisitor: visit_Print" )
         argnr = 0
         for s in node.format:
-            logjb(s, 's')
             if isinstance(s, str):
                 self.write('write(L, string\'("%s"));' % s)
             else:
@@ -2302,49 +2002,28 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 self.write(';')
             self.writeline()
         self.write("writeline(output, L);")
-        tracejbdedent()
-        tracenode()
 
     def visit_Raise(self, node):
-        tracenode( 'Raise')
-        tracejb( "_ConvertVisitor: visit_Raise" )
-        logjbinspect(node, 'node', DO_INSPECT)
         self.write('assert False report "End of Simulation" severity Failure;')
-        tracejbdedent()
-        tracenode()
 
     def visit_Return(self, node):
-        tracenode( 'Return')
-        tracejb( "_ConvertVisitor: visit_Return" )
-        logjbinspect(node, 'node', DO_INSPECT)
-        tracejbdedent()
-        tracenode()
         pass
 
 
     def visit_Subscript(self, node):
-        tracenode( 'Subscript')
-        tracejb( "_ConvertVisitor: visit_Subscript" )
-        logjbinspect( node, 'node', DO_INSPECT)
-        logjbinspect( node.obj, 'node.obj', DO_INSPECT)
         if isinstance(node.slice, ast.Slice):
             self.accessSlice(node)
         else:
             self.accessIndex(node)
-        tracejbdedent()
-        tracenode()
 
     def accessSlice(self, node):
-        tracejb( "toVHDL(): _ConvertVisitor: accessSlice" )
         if isinstance(node.value, ast.Call) and \
            node.value.func.obj in (intbv, modbv) and \
            _isConstant(node.value.args[0], self.tree.symdict):
-            logjb(node, 'special?')
             c = self.getVal(node)._val
             pre, post = "", ""
             if isinstance(node.obj, Array):
-                logjb( node.obj, 'accessSlice isArray 1')
-                
+                pass
             if node.vhd.size <= 30:
                 if isinstance(node.vhd, vhd_unsigned):
                     pre, post = "to_unsigned(", ", %s)" % node.vhd.size
@@ -2360,7 +2039,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.write(pre)
             self.write("%s" % c)
             self.write(post)
-            tracejbdedent()
             return
 #         
 # #         logjb( node.vhd, 'node.vhd', True)
@@ -2372,23 +2050,12 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             if not isinstance(node.obj, Array):
                 pre = pre + "unsigned("
                 suf = ")" + suf
-        logjb( pre + ', ' + suf, 'pre, suf augmented')
         self.write(pre)
-        logjb( node.value.__class__ , 'visiting', True)
-        logjb( node.value.__class__.__name__ )
-        logjbinspect(node, 'node', True)
-        logjbinspect(node.obj, 'node.obj', True)
-        logjb('visiting node.value')
         self.visit(node.value) # this brings us to self.visit_Name, onto self.getName where the cast is enforced in case of numeric_ports == False
-        logjb('returned from visiting node.value')
         lower, upper = node.slice.lower, node.slice.upper
         if isinstance(node.obj, Array):
-            logjb( node.obj , 'accessSlice isArray 2')
-            logjb( lower, 'lower', True)
-            logjb( upper, 'upper')
             if lower is None and upper is None:
                 self.write(suf)
-                tracejbdedent()
                 return
             # an array is specified (0 to n)
             self.write("(")
@@ -2398,7 +2065,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 self.visit(lower)
             self.write(" to ")
             if upper is None:
-                logjb( self.getVal(node.slice.lower) + node.obj._sizes[0], 'upper is None')
                 self.write("{}". format( self.getVal(node.slice.lower) + node.obj._sizes[0] ))    # unfortunately ._sizes[0] is the 'sliced' size
             else:
                 self.visit(upper)
@@ -2407,13 +2073,9 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.write(suf)
 
         else:
-            logjbinspect( node.obj, 'node.obj', True)
-            logjb( upper, 'upper', True)
-            logjb( lower, 'lower')
             # special shortcut case for [:] slice
             if lower is None and upper is None:
                 self.write(suf)
-                tracejbdedent()
                 return
             
             self.write("(")
@@ -2432,18 +2094,11 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 
             self.write(")")
             self.write(suf)
-        tracejbdedent()
 
     def accessIndex(self, node):
-        tracejb( "_ConvertVisitor: accessIndex" )
-        logjb( node, 'node', True )
-        logjb( node.value, '.value' )
-        logjbinspect( node.slice.value, '.slice.value' )
 #         pre, suf = '', ''
 #         if not isinstance(node.value, Array):
         pre, suf = self.inferCast(node.vhd, node.vhdOri)
-        logjbinspect(node.value, 'node.value')
-        logjbinspect(node.value.obj, 'node.value.obj')
         self.write(pre)
         # if we are accessing an element out of a list of constants we can short-circuit here
         if isinstance(node.value.obj, (list)) and isinstance(node.value.obj[0], int):
@@ -2460,37 +2115,25 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.visit(node.slice.value)
             self.write(")")
         self.write(suf)
-        tracejbdedent()
 
     def visit_stmt(self, body):
-#         tracenode( 'stmt')
-        tracejb( "_ConvertVisitor: visit_stmt" )
         for stmt in body:
             self.writeline()
             self.visit(stmt)
             # ugly hack to detect an orphan "task" call
             if isinstance(stmt, ast.Call) and hasattr(stmt, 'tree'):
                 self.write(';')
-        tracejbdedent()
-#         tracenode()
 
     def visit_Tuple(self, node):
-        tracenode( 'Tuple')
-        tracejb( "_ConvertVisitor: visit_Tuple" )
         assert self.context != None
         sep = ", "
         tpl = node.elts
         self.visit(tpl[0])
         for elt in tpl[1:]:
-            logjb( elt, 'elt')
             self.write(sep)
             self.visit(elt)
-        tracejbdedent()
-        tracenode()
 
     def visit_While(self, node):
-        tracenode( 'While')
-        tracejb( "_ConvertVisitor: visit_While" )
         self.labelStack.append(node.breakLabel)
         self.labelStack.append(node.loopLabel)
         self.write("while ")
@@ -2504,12 +2147,8 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.write(";")
         self.labelStack.pop()
         self.labelStack.pop()
-        tracejbdedent()
-        tracenode()
 
     def visit_Yield(self, node):
-        tracenode( 'Yield')
-        tracejb( "_ConvertVisitor: visit_Yield" )
         self.write("wait ")
         yieldObj = self.getObj(node.value)
         if isinstance(yieldObj, delay):
@@ -2522,11 +2161,8 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.visit(node.value)
         self.context = _context.UNKNOWN
         self.write(";")
-        tracejbdedent()
-        tracenode()
 
     def manageEdges(self, ifnode, senslist):
-        tracejb( "_ConvertVisitor: manageEdges" )
         """ Helper method to convert MyHDL style template into VHDL style"""
         first = senslist[0]
         if isinstance(first, _WaiterList):
@@ -2559,7 +2195,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                     edges.append(s)
             ifnode.edge = edges
             senslist = [s.sig for s in senslist]
-        tracejbdedent()
         return senslist
 
 
@@ -2571,8 +2206,6 @@ class _ConvertAlwaysVisitor(_ConvertVisitor):
 
 
     def visit_FunctionDef(self, node):
-        tracenode( node.name, 'restart')
-        tracejb( "_ConvertAlwaysVisitor: visit_FunctionDef" )
         self.writeDoc(node)
         w = node.body[-1]
         y = w.body[0]
@@ -2615,7 +2248,6 @@ class _ConvertAlwaysVisitor(_ConvertVisitor):
         self.write("end process %s;" % self.tree.name)
         self.dedent()
         self.writeline(2)
-        tracejbdedent()
 
 
 class _ConvertInitialVisitor(_ConvertVisitor):
@@ -2626,8 +2258,6 @@ class _ConvertInitialVisitor(_ConvertVisitor):
 
 
     def visit_FunctionDef(self, node):
-        tracenode( node.name, 'restart')
-        tracejb( "_ConvertInitialVisitor: visit_FunctionDef" )
 #         # strip MYHDLnnn_
 #         _, __, tname = self.tree.name.partition( '_')
 #         if tname not in functiondefs:
@@ -2651,7 +2281,6 @@ class _ConvertInitialVisitor(_ConvertVisitor):
         self.dedent()
 #             self.write("end process %s;" % tname)
         self.writeline(2)
-        tracejbdedent()
 
 
 class _ConvertAlwaysCombVisitor(_ConvertVisitor):
@@ -2679,14 +2308,10 @@ class _ConvertAlwaysCombVisitor(_ConvertVisitor):
 
             return r
 
-        tracenode( node.name, 'restart')
-        tracejb( "_ConvertAlwaysCombVisitor: visit_FunctionDef" )
         self.writeDoc(node)
 #         print(self.tree.senslist)
-        logjb( self.tree.senslist, 'self.tree.senslist' )
         senslist = compressSensitivityList( self.tree.senslist )
 #         print('> ', senslist)
-        logjb( senslist, 'compressed sensivity list')
         self.write("%s: process (" % self.tree.name)
         if len(senslist) > 0:
             for e in senslist[:-1]:
@@ -2709,7 +2334,6 @@ class _ConvertAlwaysCombVisitor(_ConvertVisitor):
         self.write("end process %s;" % self.tree.name)
         self.dedent()
         self.writeline(2)
-        tracejbdedent()
 
 
 class _ConvertSimpleAlwaysCombVisitor(_ConvertVisitor):
@@ -2720,7 +2344,6 @@ class _ConvertSimpleAlwaysCombVisitor(_ConvertVisitor):
 
 
     def visit_Attribute(self, node):
-        tracejb( "_ConvertSimpleAlwaysCombVisitor: visit_Attribute" )
         if isinstance(node.ctx, ast.Store):
             self.SigAss = True
             if isinstance(node.value, ast.Name):
@@ -2730,18 +2353,11 @@ class _ConvertSimpleAlwaysCombVisitor(_ConvertVisitor):
         else:
             self.getAttr(node)
 
-        logjb( self.SigAss, 'self.SigAss')
-        tracejbdedent()
 
     def visit_FunctionDef(self, node, *args):
-        tracenode( node.name, 'restart')
-        tracejb( "_ConvertSimpleAlwaysCombVisitor: visit_FunctionDef" )
-        logjbinspect(node, 'node', DO_INSPECT)
-        logjb( args )
         self.writeDoc(node)
         self.visit_stmt(node.body)
         self.writeline(2)
-        tracejbdedent()
 
 
 class _ConvertAlwaysDecoVisitor(_ConvertVisitor):
@@ -2752,10 +2368,6 @@ class _ConvertAlwaysDecoVisitor(_ConvertVisitor):
 
 
     def visit_FunctionDef(self, node, *args):
-        tracenode( node.name, 'restart')
-        tracejb( "_ConvertAlwaysDecoVisitor: visit_FunctionDef" )
-        logjbinspect(node, 'node', DO_INSPECT)
-        logjb( args )
         self.writeDoc(node)
         assert self.tree.senslist
         senslist = self.tree.senslist
@@ -2791,11 +2403,9 @@ class _ConvertAlwaysDecoVisitor(_ConvertVisitor):
         self.write("end process %s;" % self.tree.name)
         self.dedent()
         self.writeline(2)
-        tracejbdedent()
 
 
 def _convertInitVal(reg, init):
-    tracejb( "_convertInitVal" )
     pre, suf = '', ''
     if isinstance(reg, _Signal):
         tipe = reg._type
@@ -2816,7 +2426,6 @@ def _convertInitVal(reg, init):
     else:
         assert isinstance(init, EnumItemType)
         v = init._toVHDL()
-    tracejbdedent()
     return v
 
 
@@ -2828,11 +2437,6 @@ class _ConvertAlwaysSeqVisitor(_ConvertVisitor):
 
 
     def visit_FunctionDef(self, node, *args):
-        tracenode( node.name, 'restart')
-        tracejb( "_ConvertAlwaysSeqVisitor: visit_FunctionDef" )
-        logjbinspect(node, 'node', True)
-        logjb( args )
-        logjbinspect(self.tree, 'self.tree', True)
         self.writeDoc(node)
         assert self.tree.senslist
         senslist = self.tree.senslist
@@ -2890,7 +2494,6 @@ class _ConvertAlwaysSeqVisitor(_ConvertVisitor):
         self.write("end process %s;" % self.tree.name)
         self.dedent()
         self.writeline(2)
-        tracejbdedent()
 
 
 class _ConvertFunctionVisitor(_ConvertVisitor):
@@ -2902,29 +2505,20 @@ class _ConvertFunctionVisitor(_ConvertVisitor):
 
 
     def writeOutputDeclaration(self):
-        tracejb( "_ConvertFunctionVisitor: writeOutputDeclaration" )
         self.write(self.tree.vhd.toStr(constr=False))
-        tracejbdedent()
 
     def writeInputDeclarations(self):
-        tracejb( "_ConvertFunctionVisitor: writeInputDeclarations" )
         endchar = ""
         for name in self.tree.argnames:
-#             logjb( name, 'name')
             self.write(endchar)
             endchar = ";"
             obj = self.tree.symdict[name]
             self.writeline()
             self.writeDeclaration(obj, name, dir="in", constr=False, endchar="")
-        tracejbdedent()
 
 
 
     def visit_FunctionDef(self, node):
-        tracenode( node.name, 'restart')
-        tracejb( "_ConvertFunctionVisitor: visit_FunctionDef" )
-        logjbinspect(node, 'node', True )
-        logjb( self.tree.name )
         if self.tree.name not in functiondefs:
             functiondefs.append( self.tree.name )
             self.write("\tfunction %s(" % self.tree.name)
@@ -2945,16 +2539,12 @@ class _ConvertFunctionVisitor(_ConvertVisitor):
             self.write("end function %s;" % self.tree.name)
             self.writeline(2)
 
-        tracejbdedent()
 
     def visit_Return(self, node):
-        tracejb( "_ConvertFunctionVisitor: visit_Return" )
         self.write("return ")
-        logjb(self.tree.vhd, 'self.tree.vhd')
         node.value.vhd = self.tree.vhd
         self.visit(node.value)
         self.write(";")
-        tracejbdedent()
 
 
 class _ConvertTaskVisitor(_ConvertVisitor):
@@ -2965,10 +2555,8 @@ class _ConvertTaskVisitor(_ConvertVisitor):
 
 
     def writeInterfaceDeclarations(self):
-        tracejb( "_ConvertTaskVisitor: writeInterfaceDeclarations" )
         endchar = ""
         for name in self.tree.argnames:
-#             logjb( name , 'name')
             self.write(endchar)
             endchar = ";"
             obj = self.tree.symdict[name]
@@ -2978,11 +2566,8 @@ class _ConvertTaskVisitor(_ConvertVisitor):
             direction = (inout and "inout") or (moutput and "out") or "in"
             self.writeline()
             self.writeDeclaration(obj, name, dir=direction, constr=False, endchar="")
-        tracejbdedent()
 
     def visit_FunctionDef(self, node):
-        tracenode( node.name, 'restart')
-        tracejb( "_ConvertTaskVisitor: visit_FunctionDef" )
         self.write("procedure %s" % self.tree.name)
         if self.tree.argnames:
             self.write("(")
@@ -3000,7 +2585,6 @@ class _ConvertTaskVisitor(_ConvertVisitor):
         self.writeline()
         self.write("end procedure %s;" % self.tree.name)
         self.writeline(2)
-        tracejbdedent()
 
 
 
@@ -3113,8 +2697,6 @@ class _loopInt(int):
 
 
 def maxType(o1, o2):
-    tracejb( "maxType" )
-    tracejbdedent()
     s1 = s2 = 0
     if isinstance(o1, vhd_type):
         s1 = o1.size
@@ -3134,9 +2716,6 @@ def maxType(o1, o2):
 
 
 def inferVhdlObj(obj, attr = None):
-    tracejb( "inferVhdlObj" )
-    logjbinspect( obj , 'obj' , True)
-    logjb( isinstance(obj, Array), 'isArray')
     vhd = None
     if (isinstance(obj, _Signal) and isinstance(obj._val, intbv)) or \
        isinstance(obj, intbv):
@@ -3166,10 +2745,8 @@ def inferVhdlObj(obj, attr = None):
         
     elif isinstance(obj,(list, Array)):
         if isinstance(obj, list):
-            logjb( obj, 'inferring List')
             _, _, _, element = m1Dinfo( obj )
         else:    
-            logjb( obj, 'inferring Array')
             element = obj.element
 
         if isinstance(element, _Signal):
@@ -3189,7 +2766,6 @@ def inferVhdlObj(obj, attr = None):
             pass
         
     elif isinstance(obj, StructType):
-        logjb( obj, 'inferring StructType')
         # need the member name?
         if attr is not None:
             refs = vars( obj )
@@ -3208,14 +2784,10 @@ def inferVhdlObj(obj, attr = None):
         else:
             pass
     
-    logjbinspect( vhd, 'inferVhdlObj inferred', True)
-    tracejbdedent()
     return vhd
 
 
 def maybeNegative(vhd):
-#     tracejb( "maybeNegative" )
-#     tracejbdedent()
     if isinstance(vhd, vhd_signed):
         return True
     if isinstance(vhd, vhd_int) and not isinstance(vhd, vhd_nat):
@@ -3229,21 +2801,11 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
 
 
     def visit_FunctionDef(self, node):
-        tracejb( "_AnnotateTypesVisitor: visit_FunctionDef" )
-        tracenode( node.name, 'restart')
-#         logjb( node.name )
         # don't visit arguments and decorators
         for stmt in node.body:
-            logjbinspect( stmt, 'stmt', True)
             self.visit(stmt)
-        tracejbdedent()
 
     def visit_Attribute(self, node):
-        tracenode( 'Attribute')
-        tracejb( "_AnnotateTypesVisitor: visit_Attribute" )
-        logjbinspect( node, 'node', True)
-        logjbinspect( node.value, 'node.value', True)
-#         logjbinspect( node.value.obj, 'node.value.obj', True)
 # #         if node.attr in ('next',):
 # #             # start a target chain
 # #             node.value.target = node.value.obj
@@ -3257,35 +2819,21 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
 #             if node.attr in ('next',) and isinstance(node.value.obj, StructType):
             if node.attr in ('next',) :
                 # start a target chain
-                logjb( 'Starting an starget chain')
                 node.value.starget = node.value.obj
             else:
                 node.value.starget = node.obj
         
         self.generic_visit(node)
-        logjbinspect( node.value, 'node.value', True)
         node.vhd = copy(node.value.vhd)
         node.vhdOri = copy(node.vhd)
-        logjbinspect( node, 'node', True)
-        tracejbdedent()
-        tracenode()
 
     def visit_Assert(self, node):
-        tracenode( 'Assert')
-        tracejb( "_AnnotateTypesVisitor: visit_Assert" )
-        logjb( node, 'node')
         self.visit(node.test)
         node.test.vhd = vhd_boolean()
-        tracejbdedent()
-        tracenode()
 
     def visit_AugAssign(self, node):
-        tracenode( 'AugAssign')
-        tracejb( "_AnnotateTypesVisitor: visit_AugAssign" )
-        logjb( node, 'node')
         self.visit(node.target)
         self.visit(node.value)
-        logjb( node.op, 'node.op')
         if isinstance(node.op, (ast.BitOr, ast.BitAnd, ast.BitXor)):
             node.value.vhd = copy(node.target.vhd)
             node.vhdOri = copy(node.target.vhd)
@@ -3297,18 +2845,11 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
             self.inferBinOpType(node)
             
         node.vhd = copy(node.target.vhd)
-        tracejbdedent()
-        tracenode()
 
     def visit_Call(self, node):
-        tracenode( 'Call')
-        tracejb( "_AnnotateTypesVisitor: visit_Call" )
-        logjb( node, 'node')
         fn = node.func
         # assert isinstance(fn, astNode.Name)
         f = self.getObj(fn)
-        
-        logjb( f, 'visit_Call > f')
         node.vhd = inferVhdlObj(node.obj)
         self.generic_visit(node)
         if f is concat:
@@ -3339,14 +2880,8 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
             v.visit(node.tree)
             node.vhd = node.tree.vhd = inferVhdlObj(node.tree.returnObj)
         node.vhdOri = copy(node.vhd)
-        logjbinspect(node.vhd, 'node.vhd', True)
-        tracejbdedent()
-        tracenode()
 
     def visit_Compare(self, node):
-        tracenode( 'Compare')
-        tracejb( "_AnnotateTypesVisitor: visit_Compare" )
-        logjb( node, 'node')
         node.vhd = vhd_boolean()
         self.generic_visit(node)
         left, _, right = node.left, node.ops[0], node.comparators[0]
@@ -3357,70 +2892,40 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
         elif maybeNegative(left.vhd) and isinstance(right.vhd, vhd_unsigned):
             right.vhd = vhd_signed(right.vhd.size + 1)
         node.vhdOri = copy(node.vhd)
-        tracejbdedent()
-        tracenode()
 
     def visit_Str(self, node):
-        tracenode( 'Str')
-        tracejb( "_AnnotateTypesVisitor: visit_Str" )
-        logjb( node, 'node')
         node.vhd = vhd_string()
         node.vhdOri = copy(node.vhd)
-        tracejbdedent()
-        tracenode()
 
     def visit_Num(self, node):
-        tracenode( 'Num')
-        tracejb( "_AnnotateTypesVisitor: visit_Num" )
-        logjbinspect( node, 'node', True)
         if node.n < 0:
             node.vhd = vhd_int()
         else:
             node.vhd = vhd_nat()
         node.vhdOri = copy(node.vhd)
-        tracejbdedent()
-        tracenode()
 
     def visit_For(self, node):
-        tracejb( "_AnnotateTypesVisitor: visit_For" )
-        tracenode( 'For')
-        logjb( node, 'node')
         var = node.target.id
         # make it possible to detect loop variable
         self.tree.vardict[var] = _loopInt(-1)
         self.generic_visit(node)
-        tracejbdedent()
-        tracenode()
-
+ 
     def visit_NameConstant(self, node):
-        tracenode( 'NameConstant')
         node.vhd = inferVhdlObj(node.value)
         node.vhdOri = copy(node.vhd)
-        tracenode()
     
     def visit_Name(self, node):
         # is a terminal
-        tracenode( 'Name')
-        tracejb( "_AnnotateTypesVisitor: visit_Name" )
-        logjbinspect( node, 'node', True)
-        logjb( node.id, '.id')
         if node.id in self.tree.vardict:
             node.obj = self.tree.vardict[node.id]
-        logjbinspect( node.obj, 'node.obj', True)        
         if hasattr(node, 'starget'):
-            logjb( 'starget found')
             node.vhd = inferVhdlObj(node.starget)
         else:
             node.vhd = inferVhdlObj(node.obj)
 #         node.vhd = inferVhdlObj(node.obj)
         node.vhdOri = copy(node.vhd)
-        tracejbdedent()
-        tracenode()
 
     def visit_BinOp(self, node):
-        tracenode( 'BinOp')
-        tracejb( "_AnnotateTypesVisitor: visit_BinOp" )
-        logjb( node, 'node')
         self.generic_visit(node)
         if isinstance(node.op, (ast.LShift, ast.RShift)):
             self.inferShiftType(node)
@@ -3430,30 +2935,18 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
             pass
         else:
             self.inferBinOpType(node)
-        tracejbdedent()
-        tracenode()
 
     def inferShiftType(self, node):
-        tracejb( "_AnnotateTypesVisitor: inferShiftType" )
-        logjb( node, 'node')
         node.vhd = copy(node.left.vhd)
         node.right.vhd = vhd_nat()
         node.vhdOri = copy(node.vhd)
-        tracejbdedent()
 
     def inferBitOpType(self, node):
-        tracejb( "_AnnotateTypesVisitor: inferBitOpType" )
-        logjb( node, 'node')
         obj = maxType(node.left.vhd, node.right.vhd)
         node.vhd = node.left.vhd = node.right.vhd = obj
         node.vhdOri = copy(node.vhd)
-        tracejbdedent()
 
     def inferBinOpType(self, node):
-        tracejb( "_AnnotateTypesVisitor: inferBinOpType" )
-        logjb( node, 'node')
-        logjb(node.left.vhd , 'node.left.vhd', True)
-        logjb(node.right.vhd, 'node.right.vhd')
         left, op, right = node.left, node.op, node.right
         
         if isinstance(left.vhd, (vhd_boolean, vhd_std_logic)):
@@ -3471,10 +2964,7 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
             if maybeNegative(right.vhd) or \
                (isinstance(op, ast.Sub) and not hasattr(node, 'isRhs')):
                 left.vhd = vhd_signed(left.vhd.size + 1)
-                
-        logjb(left.vhd , 'left.vhd', True)
-        logjb(right.vhd, 'right.vhd')              
-         
+
         l, r = left.vhd, right.vhd
         ls = l.size
         rs = r.size
@@ -3509,8 +2999,6 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
                 node.vhd = vhd_int()
             else:
                 node.vhd = vhd_enum(r._type._name,rs)
-                logjb(r._type._name)
-                logjb( node.vhd )
         elif isinstance(l, (vhd_signed, vhd_int)) and isinstance(r, (vhd_signed, vhd_int)):
             node.vhd = vhd_signed(s)
         elif isinstance(l, (vhd_unsigned, vhd_int)) and isinstance(r, (vhd_unsigned, vhd_int)):
@@ -3519,71 +3007,37 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
             node.vhd = vhd_int()
             
         node.vhdOri = copy(node.vhd)
-        logjbinspect(node.vhd, 'node.vhd', True)
-        tracejbdedent()
 
     def visit_BoolOp(self, node):
-        tracenode( 'BoolOp')
-        tracejb( "_AnnotateTypesVisitor: visit_BoolOp" )
-        logjb( node.values )
         self.generic_visit(node)
         for n in node.values:
             n.vhd = vhd_boolean()
         node.vhd = vhd_boolean()
         node.vhdOri = copy(node.vhd)
-        tracejbdedent()
-        tracenode()
 
     def visit_If(self, node):
-        tracenode( 'If')
-        tracejb( "_AnnotateTypesVisitor: visit_If" )
-        logjb( node, 'node')
         if node.ignore:
-            tracejbdedent()
             return
-        logjb( node.test)
         self.generic_visit(node)
         for test, _ in node.tests:
             test.vhd = vhd_boolean()
-        tracejbdedent()
-        tracenode()
 
     def visit_IfExp(self, node):
-        tracenode( 'IfExp')
-        tracejb( "_AnnotateTypesVisitor: visit_IfExp" )
-        logjb( node, 'node')
         self.generic_visit(node) # this will visit the 3 ast.Name objects
         node.test.vhd = vhd_boolean()
-        logjb('returned from generic_visit')
-        tracejbdedent()
-        tracenode()
 
     def visit_ListComp(self, node):
-        tracenode( 'ListComp')
-        tracejb( "_AnnotateTypesVisitor: visit_ListComp" )
-        logjbinspect(node, 'node', DO_INSPECT)
-        tracejbdedent()
-        tracenode()
         pass # do nothing
 
 
     def visit_Subscript(self, node):
-        tracenode( 'Subscript')
-        tracejb( "_AnnotateTypesVisitor: visit_Subscript" )
-        logjb( node, 'node')
         if isinstance(node.slice, ast.Slice):
             self.accessSlice(node)
         else:
             self.accessIndex(node)
-        tracejbdedent()
-        tracenode()
 
     def accessSlice(self, node):
-        tracejb( "_AnnotateTypesVisitor: accessSlice" )
-        logjb( node, 'node')
         self.generic_visit(node)
-        logjbinspect( node, 'node', True)
-        
         if isinstance(node.obj, intbv) or (isinstance(node.obj, _Signal) and isinstance(node.obj._val, intbv)):
             lower = node.value.vhd.size
             t = type(node.value.vhd)
@@ -3604,7 +3058,6 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
                 
             
         elif isinstance(node.obj, Array):
-            logjb( 'isArray _AnnotateTypesVisitor: accessSlice')
             node.vhd = None
 #             node.vhd = vhd_array(0)
 #             if isinstance(node.obj._dtype, bool):
@@ -3619,21 +3072,9 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
 
         
         node.vhdOri = copy(node.vhd)
-        
-        logjbinspect( node, 'node', True)
-        logjbinspect( node.vhd, 'node.vhd', True)
-        tracejbdedent()
 
     def accessIndex(self, node):
-        tracejb( "_AnnotateTypesVisitor: accessIndex" )
-        logjbinspect( node, 'node', True)
-        logjbinspect( node.value, 'node.value', True)
-        logjbinspect( node.value.obj, 'node.value.obj', True)
-        
         self.generic_visit(node)
-        
-        logjbinspect( node.value.obj, 'node.value.obj after visit(node)', True)
-        
         node.vhd = vhd_std_logic() # XXX default
         node.slice.value.vhd = vhd_int()
         obj = node.value.obj
@@ -3643,7 +3084,6 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
             node.vhd = inferVhdlObj(element)
             
         elif isinstance(obj, Array):
-            logjb(obj.element, 'accessIndex isArray' )
             node.vhd = inferVhdlObj(obj.element)
             
         elif isinstance(obj, _Ram):
@@ -3653,21 +3093,14 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
             node.vhd = vhd_int()
             
         elif isinstance(obj, intbv):
-            logjb( 'isIntbv')
             node.vhd = vhd_std_logic()
             
         else:
-            logjb( 'vhd_std_logic() # XXX default')
-            logjbinspect(obj, 'obj', True)
-
+            pass
+        
         node.vhdOri = copy(node.vhd)
-        logjb(node.vhd, 'node.vhd')
-        tracejbdedent()
-
+        
     def visit_UnaryOp(self, node):
-        tracenode( 'UnaryOp')
-        tracejb( "_AnnotateTypesVisitor: visit_UnaryOp" )
-        logjb( node, 'node')
         self.visit(node.operand)
         node.vhd = copy(node.operand.vhd)
         if isinstance(node.op, ast.Not):
@@ -3683,29 +3116,18 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
             elif isinstance(node.vhd, vhd_nat):
                 node.vhd = vhd_int()
         node.vhdOri = copy(node.vhd)
-        tracejbdedent()
-        tracenode()
 
     def visit_While(self, node):
-        tracenode( 'While')
-        tracejb( "_AnnotateTypesVisitor: visit_While" )
-        logjb( node, 'node')
         self.generic_visit(node)
         node.test.vhd = vhd_boolean()
-        tracejbdedent()
-        tracenode()
 
 
 def _annotateTypes(genlist):
-    tracejb( genlist, "_annotateTypes" )
-#     logjb( genlist, 'genlist')
     for tree in genlist:
-        logjb( tree , 'tree')
         if isinstance(tree, _UserVhdlCode):
             continue
         v = _AnnotateTypesVisitor(tree)
         v.visit(tree)
-    tracejbdedent()
 
 
 

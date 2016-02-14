@@ -40,21 +40,6 @@ from myhdl._ShadowSignal import _TristateSignal, _TristateDriver
 from myhdl._structured import Array, StructType
 # from myhdl._intbv import intbv
 
-# tracing the poor man's way
-from myhdl.tracejbdef import TRACEJBDEFS
-if TRACEJBDEFS['_traceSignals']:
-    from myhdl.tracejb import tracejb, logjb, tracejbdedent, logjbinspect
-else:
-    def tracejb( a, b = None):
-        pass
-    def logjb(a, b = None, c = False):
-        pass
-    def tracejbdedent():
-        pass
-    def logjbinspect(a, b= None):
-        pass
-
-
 _tracing = 0
 _profileFunc = None
 
@@ -100,10 +85,6 @@ class _TraceSignalsClass(object):
                 name = str(self.name)
             if name is None:
                 raise TraceSignalsError(_error.TopLevelName)
-            logjb( name , 'name', True)
-            logjb( dut , 'dut', True)
-            logjb( args , 'args', True)
-            logjb( kwargs , 'kwargs')
 
             h = _HierExtr(name, dut, *args, **kwargs)
             vcdpath = name + ".vcd"
@@ -257,10 +238,7 @@ def _writeVcdSigs(f, hierarchy, tracelists):
             for i in range(delta + 1):
                 print("$upscope $end", file=f)
         print("$scope module %s $end" % name, file=f)
-        logjb(sigdict, 'sigdict')
         for n, s in sigdict.items():
-            logjb( n, 'n', True)
-            logjb( s, 's')
             sval = _getSval(s)
             if sval is None:
                 raise ValueError("%s of module %s has no initial value" % (n, name))
