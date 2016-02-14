@@ -73,7 +73,9 @@ class _AttrRefTransformer(ast.NodeTransformer):
         elif isinstance(obj, SignalType):
             if hasattr(SignalType, node.attr):
                 return node
-
+            attrobj = getattr(obj, node.attr)
+            orig_name = node.value.id + '.' + node.attr
+            
 #TODO: may have to resolve down ...
         elif isinstance(obj, Array):
             return node
@@ -90,18 +92,20 @@ class _AttrRefTransformer(ast.NodeTransformer):
         else:
             attrobj = getattr(obj, node.attr)
             orig_name = node.value.id + '.' + node.attr
-            if orig_name not in self.name_map:
-                if node.value.id != 'self':
-                    if node.attr[0] != '_':
-                        base_name = node.value.id + '_' + node.attr
-                    else:
-                        base_name = node.value.id + node.attr
+            
+            
+        if orig_name not in self.name_map:
+            if node.value.id != 'self':
+                if node.attr[0] != '_':
+                    base_name = node.value.id + '_' + node.attr
                 else:
-                    base_name = node.attr
-                if self.data.symdict.has_key(base_name):
-                    raise ExtractHierarchyError( _error.NameCollision.format(base_name, orig_name))
-                result = _suffixer(base_name, self.data.symdict)
-                self.name_map[orig_name] = result
+                    base_name = node.value.id + node.attr
+            else:
+                base_name = node.attr
+            if self.data.symdict.has_key(base_name):
+                raise ExtractHierarchyError( _error.NameCollision.format(base_name, orig_name))
+            result = _suffixer(base_name, self.data.symdict)
+            self.name_map[orig_name] = result
 
         new_name = self.name_map[orig_name]
         self.data.symdict[new_name] = attrobj
