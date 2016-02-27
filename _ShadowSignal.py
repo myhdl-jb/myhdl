@@ -77,20 +77,14 @@ class _SliceSignal(_ShadowSignal):
 
 
     def _genfuncSlice(self):
-#         tracejb('_ShadowSignal: _SliceSignal: _genfuncSlice')
-#         logjbinspect(self._sig, 'self._sig', True)
         sig, left, right = self._sig, self._left, self._right
         set_next = _Signal.next.fset
-#         tracejbdedent()
         while 1:
             set_next(self, sig[left:right])
             yield sig
 
 
     def _setName(self, hdl):
-#         tracejb(hdl, '_ShadowSignal: _SliceSignal: _setName')
-#         logjb( self._sig , 'self._sig')
-#         logjbinspect(self._sig)
         if hdl == 'Verilog':
             self._name = "%s[%s-1:%s]" % (self._sig._name, self._left, self._right)
         else:
@@ -99,8 +93,6 @@ class _SliceSignal(_ShadowSignal):
             else:
                 self._name = "%s(%s-1 downto %s)" % (self._sig._name, self._left, self._right)
 #                self._name = " normalise( %s(%s-1 downto %s) )" % (self._sig._name, self._left, self._right)
-#         logjb( self._name, 'self._name')
-#         tracejbdedent()
 
     def _markRead(self):
         self._read = True
@@ -115,8 +107,6 @@ class _SliceSignal(_ShadowSignal):
         return "assign %s = %s[%s-1:%s];" % (self._name, self._sig._name, self._left, self._right)
 
     def toVHDL(self):
-#         tracejb('_ShadowSignal: _SliceSignal: toVHDL')
-#         tracejbdedent()
         return "    %s <= %s(%s-1 downto %s);" % (self._name, self._sig._name, self._left, self._right)
 #        return "%s <= normalise( %s(%s-1 downto %s) );" % (self._name, self._sig._name, self._left, self._right)
 
@@ -142,15 +132,10 @@ class _IndexSignal(_ShadowSignal):
 
 
     def _setName(self, hdl):
-#         tracejb(hdl, '_ShadowSignal: _IndexSignal: _setName')
-#         logjb( self._sig , 'self._sig')
-#         logjbinspect(self._sig)
         if hdl == 'Verilog':
             self._name = "%s[%s]" % (self._sig._name, self._left)
         else:
             self._name = "%s(%s)" % (self._sig._name, self._left)
-#         logjb( self._name, 'self._name')
-#         tracejbdedent()
 
     def _markRead(self):
         self._read = True
@@ -166,8 +151,6 @@ class _IndexSignal(_ShadowSignal):
 
 
     def toVHDL(self):
-#         tracejb('_ShadowSignal: _IndexSignal: toVHDL')
-#         tracejbdedent()
         return "    %s <= %s(%s);" % (self._name, self._sig._name, self._left)
 
 
@@ -196,17 +179,11 @@ class _CloneSignal(_ShadowSignal):
             yield sig
 
     def _setName(self, hdl):
-#         tracejb(hdl, '_ShadowSignal: _CloneSignal: _setName')
-#         logjb( self._sig , 'self._sig')
-#         logjbinspect(self._sig)
         if hdl == 'Verilog':
             self._name = "%s" % (self._sig._name)
         else:
             self._name = "%s" % (self._sig._name)
             
-#         logjb( self._name, 'self._name')
-#         tracejbdedent()
-
     def _markRead(self):
         self._read = True
         self._sig._read = True
@@ -293,20 +270,14 @@ class ConcatSignal(_ShadowSignal):
             yield sigargs
 
     def _markRead(self):
-#         tracejb( 'ConcatSignal _markRead')
         self._read = True
         for s in self._sigargs:
-#             logjbinspect( s , 's', True)
             s._markRead()
-#         tracejbdedent()
 
     def _markUsed(self):
-#         tracejb( 'ConcatSignal _markUsed')
         self._used = True
         for s in self._sigargs:
-#             logjbinspect( s , 's', True)
             s._markUsed()
-#         tracejbdedent()
 
     def toVHDL(self):
         lines = []

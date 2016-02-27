@@ -6,8 +6,8 @@ Created on 26 Aug 2015
 #  This file is part of the myhdl library, a Python package for using
 #  Python as a Hardware Description Language.
 #
-#  Copyright (C) 2003-2015 Jan Decaluwe
-#  Enhanced 2015 Josy Boelen
+#  Copyright (C) 2003-2016 Jan Decaluwe
+#  Enhanced 2015-2016 Josy Boelen
 #
 #  The myhdl library is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU Lesser General Public License as
@@ -28,10 +28,9 @@ from __future__ import print_function
 
 import copy
 
-from myhdl import bin
+from myhdl import bin as myhdlbin
 from myhdl._intbv import intbv
 from myhdl._Signal import Signal, _Signal
-# from myhdl._simulator import _signals, _siglist, _futureEvents, now
 from myhdl._simulator import _siglist
 from myhdl._compat import integer_types
 from myhdl._ShadowSignal import ConcatSignal
@@ -188,7 +187,7 @@ class Array( object ):
                                         a.append( Signal( bool( dtype._val )))
                                     elif isinstance(self._dtype, EnumItemType):
                                         a.append( Signal( self._dtype ))
-    
+
                                 else:
                                     if isinstance(self._dtype, intbv):
                                         a.append( intbv( dtype._val, min = self._dtype._min, max = self._dtype._max ))
@@ -207,14 +206,14 @@ class Array( object ):
                                             if isinstance(srcvars[var], _Signal):
                                                 obj.__setattr__( var , Signal( srcvars[var]._val))
                                         a.append( obj )
-    
+
                             self._array = a
                         elif isinstance(self._sizes, tuple):
                             a = []
                             for _ in range( self._sizes[0]) :
                                 a.append( Array( shape[1:], dtype ))
                             self._array = a
-    
+
                         self.totalelements = 1
                         for size in self._sizes:
                             self.totalelements *= size
@@ -259,7 +258,7 @@ class Array( object ):
             else:
                 raise ValueError("Shape: {} of array is undefined".format( shape ))
 
-            self._nrbits = self.totalelements * self.element._nrbits
+            self._nrbits = (self.totalelements * self.element._nrbits) if not isinstance(self.element, bool) else self.totalelements
 
 
 
@@ -300,7 +299,7 @@ class Array( object ):
             return repr(self._array)
 
     def __repr__(self):
-        return "Array{}of {}". format(self._sizes, repr(self.element) )
+        return "Array{} of {}". format(self._sizes, repr(self.element) )
 
     def ref(self):
         ''' return a nice reference name for the object '''
@@ -349,14 +348,66 @@ class Array( object ):
     def __setslice__(self, *args, **kwargs):
         raise TypeError("Array object doesn't support item/slice assignment")
 
+    # concatenate
+    # will be tricky as we have to account for multiple dimensions!
+    def __add__(self, other):
+#         print( 'StructType: __add__\n{} \n{}'.format( repr(self), repr(other)))
+        if isinstance(self, Array):
+#             print( self._sizes)
+            if not isinstance(other, Array):
+                if isinstance(other, (_Signal, StructType)):
+                    # a Signal or a StructType
+                    if self.element._nrbits == other._nrbits:
+                        self._array.append(other)
+                        self._sizes[0] += 1
+                        self._nrbits += self.element._nrbits
+#                         print( self._array )
+                    else:
+                        raise  ValueError( 'Number of bits dont\'t match {} {}' .format( self.element._nrbits, other._nrbits) )
+            else:
+                if self.element._nrbits == other.element._nrbits:
+                    pass
+                else:
+                    raise  ValueError( 'Number of bits dont\'t match {} {}' .format( self.element._nrbits, other.element._nrbits) )
+        else:
+            pass
 
-    # concatenating Arrays and such
-#     def __add__(self, other):
-#         if isinstance(other, _Signal):
-#             return self._val + other._val
-# 
-#     def __radd__(self, other):
-#         return other + self._val
+        return self
+
+    def __radd__(self, other):
+#         print( 'StructType: __radd__\n{} \n{}'.format( repr(self), repr(other)))
+        if isinstance(self, Array):
+#             print( self._sizes)
+            if not isinstance(other, Array):
+                if isinstance(other, (_Signal, StructType)):
+                    # a Signal or a StructType
+                    if self.element._nrbits == other._nrbits:
+                        self._array.insert(0, other)
+                        self._sizes[0] += 1
+                        self._nrbits += self.element._nrbits
+#                         print( self._array )
+                    else:
+                        raise  ValueError( 'Number of bits dont\'t match {} {}' \
+                                           .format( self.element._nrbits, other._nrbits) )
+                else:
+                    # must be an int??
+                    newsig = self.element.copy()
+                    newsig._val._val = other
+                    self._array.insert(0, newsig)
+                    self._sizes[0] += 1
+                    self._nrbits += self.element._nrbits
+#                     print( self._array )
+            else:
+                if self.element._nrbits == other.element._nrbits:
+                    pass
+                else:
+                    raise  ValueError( 'Number of bits dont\'t match {} {}' \
+                                       .format( self.element._nrbits, other.element._nrbits) )
+        else:
+            pass
+
+        return self
+    
 
     # support for the 'val' attribute
     @property
@@ -483,17 +534,18 @@ class StructType( object ):
         self.sequencelist = None
         self._driven = False
         self._read = False
-
+        self._name = None
+        
         if args and len(args) > 2:
-            print( 'combining objects into a StructType' )
+#             print( 'combining objects into a StructType' )
             self.__class__.__name__ = args[0]
             self.sequencelist = args[1]
             for i, key in enumerate( args[1] ):
-                print( key )
+#                 print( key )
                 setattr(self, key, args[2+i])
                 self._nrbits += args[2+i]._nrbits 
                   
-            print(repr( self ))
+#             print(repr( self ))
             
     def __len__(self):
         return self._nrbits
@@ -515,7 +567,6 @@ class StructType( object ):
             else:
                 objlist = [ vars(obj)[key] for key in vars(obj).keys()  ]
 
-
             for item in objlist:
                 # must nest structured types
                 if isinstance( item, StructType ):
@@ -534,7 +585,39 @@ class StructType( object ):
         siglist = collect( self )
         return ConcatSignal(  *reversed( siglist  ) )
 
+    def toStructType(self, vector):
+        ''' split a (large) intbv into a StructType '''
+        if self.sequencelist is None:
+            raise ValueError( 'Need a sequencelist to correctly assign StructType members')
 
+        idx = 0
+        for key in self.sequencelist:
+            if hasattr(self, key):
+                obj = vars(self)[key]
+                if isinstance(obj , _Signal):
+                    if isinstance(obj._val, intbv):
+                        # take care of unsigned/signed
+                        vars(self)[key] = vector(idx + obj._nrbits, idx)
+                        idx += obj._nrbits
+                    else:
+                        # a bool
+                        vars(self)[key] = vector(idx)
+                        idx += 1
+
+                elif isinstance(obj, Array):
+                    obj.toArray(vector( idx + obj._nrbits, idx))
+                    idx +=  obj._nrbits
+
+                elif isinstance(obj, StructType):
+                    obj.toStructType(vector( idx + obj._nrbits, idx))
+                    idx +=  obj._nrbits
+
+                elif isinstance(obj, integer_types):
+                    pass
+
+                else:
+                    pass
+    
     def __repr__(self):
         return 'StructType {} {}'.format( self.__class__.__name__, vars( self ))
 
@@ -647,7 +730,7 @@ class StructType( object ):
                     if isinstance(obj._val, bool):
                         inits.append("%s => '%s', " % (key,  1 if obj._val else 0))
                     elif isinstance(obj._val, intbv):
-                        inits.append("%s => \"%s\", " % (key, bin(obj._val, obj._nrbits)))
+                        inits.append("%s => \"%s\", " % (key, myhdlbin(obj._val, obj._nrbits)))
                     elif isinstance(obj._val, EnumItemType):
                         inits.append("%s => %s, " % (key, obj._val))
                 elif isinstance(obj, StructType):
@@ -676,6 +759,17 @@ class StructType( object ):
         self._setNextVal(val)
         _siglist.append(self)
 
+
+    # support for the 'driven' attribute
+    @property
+    def driven(self):
+        return self._driven
+
+    @driven.setter
+    def driven(self, val):
+        if not val  in ("reg", "wire", True):
+            raise ValueError('Expected value "reg", "wire", or True, got "%s"' % val)
+        self._driven = val
 
 
 

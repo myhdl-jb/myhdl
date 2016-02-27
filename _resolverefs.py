@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function
 import ast
 from types import FunctionType
 
@@ -46,6 +46,8 @@ def _suffixer(name, used_names):
 
 class _AttrRefTransformer(ast.NodeTransformer):
     def __init__(self, data):
+#         if hasattr(data, 'name'):
+#             print('_AttrRefTransformer: ', data.name)
 #         logjbinspect( data, '_AttrRefTransformer', True)
         self.data = data
         self.data.objlist = []
@@ -84,7 +86,9 @@ class _AttrRefTransformer(ast.NodeTransformer):
         elif isinstance(obj, StructType):
             attrobj = getattr(obj, node.attr)
             orig_name = node.value.id + '.' + node.attr
+#             print( 'resolverefs {}'.format(orig_name))
             if orig_name not in self.name_map:
+#                 print( 'not in self.name_map')
                 if self.data.symdict.has_key(orig_name):
                     raise ValueError('self.data.symdict.haskey(orig_name)')
                 self.name_map[orig_name] = orig_name
@@ -110,6 +114,7 @@ class _AttrRefTransformer(ast.NodeTransformer):
         new_name = self.name_map[orig_name]
         self.data.symdict[new_name] = attrobj
         self.data.objlist.append(new_name)
+#         print( orig_name, new_name, attrobj )
 
         new_node = ast.Name(id=new_name, ctx=node.value.ctx)
         return ast.copy_location(new_node, node)

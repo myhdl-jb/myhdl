@@ -376,13 +376,17 @@ class _HierExtr(object):
                         elif isinstance(v, StructType):       
 #TODO: keep top level StructType arguments from entering the memdict as they will be expanded
 #                             if self.level > 1:
-                            # should also be entered in the memdict   
-                            m = _makeMemInfo(v, 1, 1, 1, v ) 
-                            memdict[n] = m
-                            if n in cellvars:
-                                m._used = True
-                            else:
-                                pass
+#                             print( 'n: {:20}, v: {}' .format( n, v ))
+                            # only enter 'top' StructTypes, i.e. not the nested StructType(s)
+                            if '.' not in n:
+                                # should also be entered in the memdict   
+                                m = _makeMemInfo(v, 1, 1, 1, v ) 
+                                memdict[n] = m
+                                if n in cellvars:
+                                    m._used = True
+                                else:
+                                    pass
+
                         # save any other variable in argdict
                         if (n in arglist) and (n not in sigdict) and (n not in memdict):
                             argdict[n] = v

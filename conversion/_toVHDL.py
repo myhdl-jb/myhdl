@@ -458,7 +458,8 @@ def expandStructType(c, stdLogicPorts, pl, name, obj):
         elif isinstance(attrobj, StructType):
             if expandlevel > 1:
                 # can assume is yet another interface ...
-                expandStructType(c, stdLogicPorts, pl, name + '_' + attr, attrobj)
+#                 expandStructType(c, stdLogicPorts, pl, name + '_' + attr, attrobj)
+                expandStructType(c, stdLogicPorts, pl, name + attr, attrobj)
             else :
                 pass
 
@@ -663,10 +664,9 @@ def _writeTypeDefs(f, memlist):
         if not m._used or m.usagecount == 0:
             continue
         # infer attributes for the case of named signals in a list
-#         print( 'inferattrs', m.name, m._driven, m._read, repr( m ))
+#         print('inferring {:30} {:4} {:4} {}'.format( m.name, m._driven, m._read, repr(m.mem ) ))
         inferattrs( m, m.mem)
-#         print( 'returned' , m.name, m._driven, m._read)
-            
+#         print('inferattrs: {:4} {:4}'.format( m._driven, m._read ))
         if m.depth == 1 and isinstance(m.elObj, StructType):
                 # a 'single' StructType
             basetype = addstructuredtypedef(m.elObj)
@@ -852,24 +852,35 @@ def sortalign( sl , sort = False, port = False):
 
 
 def inferattrs( m, mem):
+#     print( m.name , mem)
     if isinstance(mem, StructType):
+#         md, mr =  m._driven, m._read,
+#         print( "StructType" , mem._driven, mem._read)
         refs = vars( mem )
         for k in refs:
             s = refs[k]
             if isinstance(s, _Signal):
+#                 print(s._name, s._driven, s._read)
 #                 print('inferring Signal', k, repr( s ) , s._driven, s._read)
                 if not m._driven and s._driven:
                     m._driven = s._driven
                 if not m._read and s._read:
                     m._read = s._read
+#                 # only consider a StructType signal if at least one of its members
+#                 # is both driven and read
+#                 if not m._driven or not m._read:
+#                     if s._driven and s._read:
+#                         m._driven = s._driven
+#                         m._read = s._read
             elif isinstance(s, (Array, StructType)):
                 # it may be another StructType
                 # or an Array
-#                 print(' inferring Array or StructType', repr( s ) , s._driven, s._read)
+#                 print(' inferring nested Array or StructType', repr( s ) , s._driven, s._read)
                 inferattrs(m, s)
             else:
 #                 print( 'inferring ?', k, repr( s ))
                 pass
+#         print( 'inferattrs {:39}, {:4}, {:4}  returned {:4}, {:4}' .format( m.name,  md, mr, m._driven, m._read))
             
     elif isinstance(mem[0], list):
         for mmm in mem:
@@ -1037,6 +1048,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
 
     def __init__(self, tree, buf):
 #         tracejb( "_ConvertVisitor : __init__" )
+#         print( '_ConvertVisitor', tree.name)
         self.tree = tree
         self.buf = buf
         self.returnLabel = tree.name
@@ -1084,9 +1096,12 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
 
 
     def inferCast(self, vhd, ori):
+#         print('inferCast', vhd, ori)
         pre, suf = "", ""
         if isinstance(vhd, vhd_int):
-            if not isinstance(ori, vhd_int):
+            if isinstance(ori, vhd_array):
+                pass
+            elif not isinstance(ori, vhd_int):
                 pre, suf = "to_integer(", ")"
         elif isinstance(vhd, vhd_unsigned):
             if isinstance(ori, vhd_unsigned):
@@ -1098,7 +1113,10 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                     pre, suf = "resize(unsigned(", "), %s)" % vhd.size
                 else:
                     pre, suf = "unsigned(", ")"
+            elif isinstance(ori, vhd_array):
+                pass
             else:
+#                 print('?')
                 pre, suf = "to_unsigned(", ", %s)" % vhd.size
         elif isinstance(vhd, vhd_signed):
             if isinstance(ori, vhd_signed):
@@ -1110,6 +1128,9 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                     pre, suf = "signed(resize(", ", %s))" % vhd.size
                 else:
                     pre, suf = "signed(", ")"
+            elif isinstance(ori, vhd_array):
+#                 print('inferCast', vhd, ori)
+                pass
             else:
                 pre, suf = "to_signed(", ", %s)" % vhd.size
         elif isinstance(vhd, vhd_boolean):
@@ -1128,7 +1149,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         elif isinstance(vhd, vhd_enum):
             if not isinstance(ori, vhd_enum):
                 pre, suf = "%s'pos(" % vhd._type._name, ")"
-
         return pre, suf
 
 
@@ -1261,10 +1281,15 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
 
 
     def BinOp(self, node):
+#         print('BinOp', node.op, node.left, node.right)
+        if isinstance(node.left.vhd, vhd_array) or isinstance(node.right.vhd, vhd_array):
+            operator = '&'
+        else:
+            operator = opmap[type(node.op)]
         pre, suf = self.inferBinaryOpCast(node, node.left, node.right, node.op)
         self.write(pre)
         self.visit(node.left)
-        self.write(" %s " % opmap[type(node.op)])
+        self.write(" %s " % operator)
         self.visit(node.right)
         self.write(suf)
 
@@ -1958,7 +1983,11 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
 
             # dead code?
             elif isinstance( obj, Array):
-                s = n
+                s = obj._name
+
+            elif isinstance( obj, StructType):
+#                 print(n, repr(obj))
+                s = obj._name
 
             elif isinstance(obj, dict):
                 print('obj is dict', obj, s, n)
@@ -2690,7 +2719,7 @@ class vhd_nat(vhd_int):
 
 class vhd_array(vhd_type):
     def to_Str(self):
-        return ''
+        return 'Array'
     
 class _loopInt(int):
     pass
@@ -2934,6 +2963,7 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
         elif isinstance(node.op, ast.Mod) and isinstance(node.left, ast.Str): # format string
             pass
         else:
+#             print( 'visit_BinOp', repr(node.left), repr(node.op), repr(node.right))
             self.inferBinOpType(node)
 
     def inferShiftType(self, node):
@@ -2948,7 +2978,7 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
 
     def inferBinOpType(self, node):
         left, op, right = node.left, node.op, node.right
-        
+#         print( 'inferBinOpType 1', left.vhd, right.vhd)
         if isinstance(left.vhd, (vhd_boolean, vhd_std_logic)):
             left.vhd = vhd_unsigned(1)
             
@@ -2966,8 +2996,10 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
                 left.vhd = vhd_signed(left.vhd.size + 1)
 
         l, r = left.vhd, right.vhd
+#         print( 'inferBinOpType 2 {} {}\n {} {}'.format( left.vhd, repr(left), right.vhd, repr(right)))
         ls = l.size
         rs = r.size
+#         print( 'inferBinOpType 3', ls, rs)
         if isinstance(r, vhd_vector) and isinstance(l, vhd_vector):
             if isinstance(op, (ast.Add, ast.Sub)):
                 s = max(ls, rs)
@@ -3003,6 +3035,9 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
             node.vhd = vhd_signed(s)
         elif isinstance(l, (vhd_unsigned, vhd_int)) and isinstance(r, (vhd_unsigned, vhd_int)):
             node.vhd = vhd_unsigned(s)
+        elif isinstance(l, vhd_array) or isinstance(r, vhd_array):
+#             print( 'Array')
+            node.vhd = vhd_array(0) 
         else:
             node.vhd = vhd_int()
             
@@ -3058,8 +3093,8 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
                 
             
         elif isinstance(node.obj, Array):
-            node.vhd = None
-#             node.vhd = vhd_array(0)
+#             node.vhd = None
+            node.vhd = vhd_array(0)
 #             if isinstance(node.obj._dtype, bool):
 #                 node.vhd = vhd_std_logic()
 #             elif isinstance(node.obj._dtype, intbv):

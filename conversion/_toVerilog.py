@@ -247,42 +247,48 @@ def _writeModuleHeader(f, intf, doc):
     # common checks
     for portname in intf.argnames:
         s = intf.argdict[portname]
-        if s._name is None:
-            raise ToVerilogError(_error.ShadowingSignal, portname)
-        if s._inList:
-            raise ToVerilogError(_error.PortInList, portname)
-        # make sure signal name is equal to its port name
-        s._name = portname
-        if s._driven:
-            if s._read :
-                if not isinstance(s, _TristateSignal):
-                    warnings.warn("%s: %s" % (_error.OutputPortRead, portname),
+        if isinstance(s, StructType):
+            pass
+        else:
+            if s._name is None:
+                raise ToVerilogError(_error.ShadowingSignal, portname)
+            if s._inList:
+                raise ToVerilogError(_error.PortInList, portname)
+            # make sure signal name is equal to its port name
+            s._name = portname
+            if s._driven:
+                if s._read :
+                    if not isinstance(s, _TristateSignal):
+                        warnings.warn("%s: %s" % (_error.OutputPortRead, portname),
+                                      category=ToVerilogWarning
+                                      )    
+            else:
+                if not s._read:
+                    warnings.warn("%s: %s" % (_error.UnusedPort, portname),
                                   category=ToVerilogWarning
                                   )    
-        else:
-            if not s._read:
-                warnings.warn("%s: %s" % (_error.UnusedPort, portname),
-                              category=ToVerilogWarning
-                              )    
                 
     if toVerilog.standard >= 'SV2005':
         # new style declarations
         print("module %s (" % intf.name, file=f)
         for i,portname in enumerate( intf.argnames ):
             s = intf.argdict[portname]
-            r = _getRangeString(s)
-            p = _getSignString(s)
-            comma = ''
-            if i < len(intf.argnames) - 1:
-                comma = ','
-            sigdecl = " %s%s%s%s" % (p, r, portname, comma)
-            if s._driven:
-                if s._driven == 'reg':
-                    print("    output logic %s" % sigdecl, file=f)
-                else:
-                    print("    output wire  %s" % sigdecl, file=f)
+            if isinstance(s, StructType):
+                pass
             else:
-                print("    input  wire  %s" % sigdecl, file=f)
+                r = _getRangeString(s)
+                p = _getSignString(s)
+                comma = ''
+                if i < len(intf.argnames) - 1:
+                    comma = ','
+                sigdecl = " %s%s%s%s" % (p, r, portname, comma)
+                if s._driven:
+                    if s._driven == 'reg':
+                        print("    output logic %s" % sigdecl, file=f)
+                    else:
+                        print("    output wire  %s" % sigdecl, file=f)
+                else:
+                    print("    input  wire  %s" % sigdecl, file=f)
 
         print("    );", file=f)
         print(doc, file=f)
@@ -602,6 +608,8 @@ def _getRangeString(s):
             return "[%s:0] " % (s._nrbits-1)
         else:
             raise AssertionError
+
+
 def _getSignString(s):
     if s._min is not None and s._min < 0:
         return "signed "

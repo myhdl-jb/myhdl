@@ -116,10 +116,11 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
             if m.name is not None:
                 continue
             m.name = _makeName(n, prefixes, namedict)
+#             print('makename', m.name)
             if isinstance(m.mem, Array) :
                 m.mem._name = m.name 
             elif isinstance(m.mem, StructType):
-                pass
+                m.mem._name = m.name 
             memlist.append(m)
 
     # handle the case where a named signal appears in a list also by giving
@@ -130,6 +131,7 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
         if not m._used:
             continue
         # m is a m1D list
+#         print( "expanding", m.name)
         expandsignalnames(m.mem, m.name, 0, 0, openp, closep)
 
     return siglist, memlist
@@ -158,10 +160,12 @@ def expandsignalnames( memobj, name , memindex, level, openp, closep):
                 makesname(None, obj, name, obj, key, None )
 
             elif isinstance(obj, StructType):
+                obj._name =  ''.join((name, '.', key))
                 nextname = '{}.{}'.format(name, key)
                 expandsignalnames(obj, nextname, memindex, 0, openp, closep) 
 
             elif isinstance(obj, Array):
+                obj._name =  ''.join((name, '.', key))
                 expandsignalnames(obj, name, memindex, level + 1, openp, closep) 
 
     else:
@@ -493,7 +497,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             self.visit(n)
         for n in node.values:
             if not hasType(n.obj, bool):
-                self.raiseError(node, _error.NotSupported, "non-boolean argument in logical operator")
+                self.raiseError(node, _error.NotSupported, "non-boolean argument in logical operator '{}'".format(n.obj))
         node.obj = bool()
 
     def visit_UnaryOp(self, node):
@@ -675,7 +679,8 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             pass
         elif f in builtinObjects:
             pass
-        elif type(f) is FunctionType:
+#         elif type(f) is FunctionType:
+        elif isinstance(f, FunctionType):
             argsAreInputs = False
             tree = _makeAST(f)
             fname = f.__name__
@@ -1372,6 +1377,7 @@ def _analyzeTopFunc(top_inst, func, *args, **kwargs):
     # now expand the interface objects
     for name, obj in objs:
         if isinstance(obj, StructType):
+#             print( '_analyzeTopFunc', repr(obj))
             # do not expand StructTypes
             # toVHDL will handle this
             v.argdict[name] = obj
