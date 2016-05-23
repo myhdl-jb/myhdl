@@ -95,7 +95,7 @@ class Array( object ):
                 # break out to a function
                 shape.toArray( dtype )
 
-            elif isinstance(shape, list):
+            elif isinstance(shape, (Array, list)):
                 # an initialised list
                 # element remembers what the caller gave us
                 self.element = dtype
@@ -195,7 +195,9 @@ class Array( object ):
                                         a.append( bool( dtype) )
                                     elif isinstance(self._dtype, StructType):
                                         # a StructType object
-                                        a.append( dtype.copy() ) 
+                                        a.append( dtype.copy() )
+                                    elif isinstance(self._dtype, list):
+                                        pass
                                     else:
                                         # an interface
                                         obj = copy.deepcopy( self._dtype )
@@ -327,9 +329,10 @@ class Array( object ):
 
     # get
     def __getitem__(self, *args, **kwargs):
+#         print(args, kwargs)
         item =  self._array.__getitem__(*args, **kwargs)
-        if isinstance( item, list):
-            print( '__getitem__ should never return a list?')
+#         if isinstance( item, list):
+#             print( '{}: __getitem__ should never return a list?'.format(self._name))
 
         return item
 
@@ -338,7 +341,7 @@ class Array( object ):
         if isinstance( sliver, list):
             return Array(sliver, self)
         else:
-            print( '__getslice__ should always return a list?')
+#             print( '__getslice__ should always return a list?')
             return sliver
 
     # set ?
@@ -433,7 +436,7 @@ class Array( object ):
     def _setNextVal(self, val):
 
         def setnext( obj, value):
-            ''' a local function to do the work, recursively '''        
+            ''' a local function to do the work, recursively '''
             if isinstance(obj[0], (list, Array)):
                 for i, item in enumerate( obj ):
                     setnext( item, value[i] )
@@ -476,6 +479,34 @@ class Array( object ):
     def _markUsed(self):
         self._used = True
 
+ 
+    ### use call interface for shadow signals ###
+    def __call__(self, left = None, right=None, signed = False):
+        ''' build a new Array
+        making it from (possibly) sliced signals
+        '''
+        # need a local recursive function
+        def makenext( obj, top):
+            ''' a local function to do the work, recursively '''
+            if isinstance(obj[0], (list, Array)):
+                for item in obj :
+                    lower = []
+                    makenext( item, lower )
+                    top.append(lower)
+            else:
+                # lowest level
+                for sig in obj:
+                    # forward to _Signal (must be a Signal!)
+                    top.append( sig(left, right, signed) )
+
+        if isinstance(self.element, _Signal):
+            top = []
+            makenext(self, top)
+            print( 'Array: {}() {} {} {} {}:'.format(id(self), left, right, signed, repr(top)))
+            return Array(top, None)
+        else:
+            raise ValueError('Can only slice Signals (for now) <> {}'.format(repr(self.element)))
+
     def toArray(self, vector):
         ''' replace the elements of an Array by SliceSignals '''
         # a local function
@@ -492,7 +523,7 @@ class Array( object ):
 
     def tointbv(self):
         ''' concatenates all elements '''
-        def collect( obj , harvest ):
+        def collect(obj , harvest):
             ''' a local recursive function '''
             if len(obj._sizes) == 1:
                 if isinstance(obj.element, _Signal):
@@ -503,10 +534,11 @@ class Array( object ):
                         collect(obj, harvest)
             else:
                 for i in range(obj._sizes[0]):
-                    collect( obj[i], harvest)
+                    collect(obj[i], harvest)
 
         harvest = []
-        return ConcatSignal(  *reversed( collect( self , harvest ) ) )        
+        collect(self , harvest)
+        return ConcatSignal(*reversed(harvest))        
 
 
     def copy(self):
@@ -635,14 +667,23 @@ class StructType( object ):
                 nobj.__setattr__( var , Signal( obj._val))
             elif isinstance(obj, (StructType, Array)):
                 nobj.__setattr__( var, obj.copy() )
+            elif isinstance(obj, list):
+                # List of anything
+                # presumably Signal, Array, StructType
+                # but anything goes?
+                siglist = []
+                for sig in obj:
+                    siglist.append(sig.copy())
+                nobj.__setattr__( var , siglist )
             else:
+                # fall back for others
                 nobj.__setattr__( var , copy.deepcopy(obj))
 
         return nobj
 
 
     def ref(self):
-        ''' returns a condensed name representing the contents of the struct, starting with the __class__ name'''
+        ''' returns a condensed name representing the contents of the StructType, starting with the __class__ name'''
         retval = 'r_{}'.format(self.__class__.__name__)
         # should be in order of the sequencelist, if any
         if self.sequencelist:
@@ -704,6 +745,8 @@ class StructType( object ):
                     dst._setNextVal( src._val)
                 else:
                     dst._setNextVal(src) 
+            elif isinstance(dst, (Array, StructType)):
+                dst._setNextVal(vargs[key])
 
 
     def _update(self):
@@ -716,6 +759,10 @@ class StructType( object ):
             obj = refs[key]
             if isinstance( obj, (_Signal, StructType, Array)):
                 waiters.extend( obj._update() )
+            elif isinstance(obj, list):
+                for lobj in obj:
+                    waiters.extend( lobj._update() )
+
         return waiters
 
 
@@ -735,7 +782,7 @@ class StructType( object ):
                         inits.append("%s => %s, " % (key, obj._val))
                 elif isinstance(obj, StructType):
                     # one down 
-                    inits.append( '{} => ( {} ), '.format(key, obj.initial()))
+                    inits.append( '{} => ( {} ), '.format(key, obj.initial(targetlanguage)))
                 elif isinstance(obj, Array):
                     inits.append('{} => {}, '.format(key, obj.initial(targetlanguage)))
             else:

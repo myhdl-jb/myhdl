@@ -72,7 +72,7 @@ class _AlwaysComb(_Always):
                     elif isinstance(refs[k], (list, Array)):
                         senslistexpand(senslist, refs[k])
                     else:
-                        print( 'senslistexpand passing?')
+#                         print( 'senslistexpand passing {}?'.format(k))
                         pass
             else:
                 if isinstance(reg[0], (list, Array)):
@@ -116,6 +116,7 @@ class _AlwaysComb(_Always):
 
         for n in self.inputs:
             s = self.symdict[n]
+#             print(n, s, isinstance(s, StructType), isinstance( s, (list, Array)))
             if isinstance(s, _Signal):
                 senslist.append(s)
             elif isinstance( s, (list, Array)):
@@ -127,7 +128,7 @@ class _AlwaysComb(_Always):
             elif _isListOfSigs(s):
                 senslist.extend(s)
             else :
-                print('_always_comb', n)
+#                 print('_always_comb', n)
                 pass
         self.senslist = tuple(senslist)
         self.gen = self.genfunc()
