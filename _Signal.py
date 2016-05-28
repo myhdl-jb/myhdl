@@ -617,6 +617,15 @@ class _Signal(object):
                 return Signal(intbv(0, min = int(self._val._min * (2**extendbits)), 
                                     max = int(self._val._max * (2**extendbits))))
 
+    # copy, deepcopy hooks
+    def __copy__(self):
+        return Signal( self._val )
+
+
+    def __deepcopy__(self, visit):
+        return Signal( self._val )
+
+
     def suppressWarning(self):
         self._suppresswarning = True
         pass

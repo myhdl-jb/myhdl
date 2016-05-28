@@ -28,6 +28,7 @@ from __future__ import print_function
 
 import copy
 
+# from myhdl import concat
 from myhdl import bin as myhdlbin
 from myhdl._intbv import intbv
 from myhdl._Signal import Signal, _Signal
@@ -502,7 +503,7 @@ class Array( object ):
         if isinstance(self.element, _Signal):
             top = []
             makenext(self, top)
-            print( 'Array: {}() {} {} {} {}:'.format(id(self), left, right, signed, repr(top)))
+#             print( 'Array: {}() {} {} {} {}:'.format(id(self), left, right, signed, repr(top)))
             return Array(top, None)
         else:
             raise ValueError('Can only slice Signals (for now) <> {}'.format(repr(self.element)))
@@ -525,20 +526,57 @@ class Array( object ):
         ''' concatenates all elements '''
         def collect(obj , harvest):
             ''' a local recursive function '''
+#             print(repr(obj), obj._sizes)
             if len(obj._sizes) == 1:
+#                 print('Last round')
                 if isinstance(obj.element, _Signal):
                     for i in range(obj._sizes[0]):
-                        harvest.extend(obj[i])
+#                         print('.', end='')
+                        harvest.append(obj[i])
+#                     print(harvest)
                 elif isinstance(obj.element, StructType):
                     for i in range(obj._sizes[0]):
                         collect(obj, harvest)
+                else:
+#                     print('not handled?')
+                    pass
             else:
                 for i in range(obj._sizes[0]):
                     collect(obj[i], harvest)
 
+#         print('Array: tointbv() {}'.format(repr(self)))
         harvest = []
         collect(self , harvest)
-        return ConcatSignal(*reversed(harvest))        
+        return ConcatSignal(*reversed(harvest))
+#         return concat( *reversed(harvest))
+
+    def flatten(self):
+        ''' concatenates all elements '''
+        def collect(obj , harvest):
+            ''' a local recursive function '''
+#             print(repr(obj), obj._sizes)
+            if len(obj._sizes) == 1:
+#                 print('Last round')
+                if isinstance(obj.element, _Signal):
+                    for i in range(obj._sizes[0]):
+#                         print('.', end='')
+                        harvest.append(obj[i])
+#                     print(harvest)
+                elif isinstance(obj.element, StructType):
+                    for i in range(obj._sizes[0]):
+                        collect(obj, harvest)
+                else:
+#                     print('not handled?')
+                    pass
+            else:
+                for i in range(obj._sizes[0]):
+                    collect(obj[i], harvest)
+
+#         print('Array: tointbv() {}'.format(repr(self)))
+        harvest = []
+        collect(self , harvest)
+        return harvest
+#         return concat( *reversed(harvest))
 
 
     def copy(self):

@@ -717,10 +717,16 @@ def _writeSigDecls(f, intf, siglist, memlist):
     del functiondefs[:]
     sl = []
     for s in siglist:
-        if not s._used:
-            continue
+        print(s, end='')
+
         if s._name in intf.argnames:
+            print(' in  intf.argnames {}'.format(intf.argnames))
             continue
+
+        if not s._used:
+            print(' is not used {}'.format(repr(s)))
+            continue
+
         r = _getRangeString(s)
         p = _getTypeString(s)
         if s._driven or s._read:
@@ -750,6 +756,10 @@ def _writeSigDecls(f, intf, siglist, memlist):
                               )
                 constwires.append(s)
 
+        else:
+            print(' is not driven or read', end='')
+            pass
+        print()
 
     for m in memlist:
         if not m._used or m.usagecount == 0:
@@ -1368,7 +1378,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.setAttr(node)
         else:
             self.getAttr(node)
-        if node.attr in ('next',) :
+        if node.attr in ('next', 'posedge', 'negedge') :
             pass
         else:
 #             print('? {}'.format(node.attr))
@@ -2791,6 +2801,7 @@ def inferVhdlObj(obj, attr = None):
         
     elif isinstance(obj,(list, Array)):
         if isinstance(obj, list):
+#             print(obj)
             _, _, _, element = m1Dinfo( obj )
         else:    
             element = obj.element

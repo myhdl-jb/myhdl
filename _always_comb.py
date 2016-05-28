@@ -131,6 +131,7 @@ class _AlwaysComb(_Always):
 #                 print('_always_comb', n)
                 pass
         self.senslist = tuple(senslist)
+#         print(senslist)
         self.gen = self.genfunc()
         if len(self.senslist) == 0:
             raise AlwaysCombError(_error.EmptySensitivityList)

@@ -110,17 +110,19 @@ def downrange(start, stop=0, step=1):
 
 def m1Dinfo( l ):
     ''' determine the properties of a (multi-dimensiomnal) list '''
-    element = l[0]
-    totalelements = len(l)
-    levels = 1
-    sizes = [len(l)]
-    while isinstance(element, list):
-        sizes.append(len(element))
-        totalelements *= len(element)
-        element = element[0]
-        levels += 1
-    return levels, sizes, totalelements, element
-
+    if len(l):
+        element = l[0]
+        totalelements = len(l)
+        levels = 1
+        sizes = [len(l)]
+        while isinstance(element, list):
+            sizes.append(len(element))
+            totalelements *= len(element)
+            element = element[0]
+            levels += 1
+        return levels, sizes, totalelements, element
+    else:
+        return None, None, None, None
 
 # class rtlinstance(object):
 #     def __init__(self, f):
