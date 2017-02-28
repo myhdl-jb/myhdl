@@ -28,8 +28,9 @@ from myhdl._util import _isGenFunc, _makeAST
 from myhdl._delay import delay
 from myhdl._Signal import _Signal, _WaiterList, posedge, negedge
 from myhdl._Waiter import _Waiter, _SignalWaiter, _SignalTupleWaiter, \
-                          _DelayWaiter, _EdgeWaiter, _EdgeTupleWaiter
+    _DelayWaiter, _EdgeWaiter, _EdgeTupleWaiter
 from myhdl._instance import _Instantiator
+
 
 class _error:
     pass
@@ -49,6 +50,7 @@ def always(*args):
             arg.sig._used = True
         elif not isinstance(arg, delay):
             raise AlwaysError(_error.DecArgType)
+
     def _always_decorator(func):
         if not isinstance(func, FunctionType):
             raise AlwaysError(_error.ArgType)
@@ -57,8 +59,9 @@ def always(*args):
         if func.__code__.co_argcount > 0:
             raise AlwaysError(_error.NrOfArgs)
         return _Always(func, args)
+
     return _always_decorator
-        
+
 
 class _Always(_Instantiator):
 
@@ -105,7 +108,7 @@ class _Always(_Instantiator):
                 W = _EdgeTupleWaiter
 
         return W
-            
+
     @property
     def ast(self):
         return _makeAST(self.func)

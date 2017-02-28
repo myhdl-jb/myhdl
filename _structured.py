@@ -7,7 +7,7 @@ Created on 26 Aug 2015
 #  Python as a Hardware Description Language.
 #
 #  Copyright (C) 2003-2016 Jan Decaluwe
-#  Enhanced 2015-2016 Josy Boelen
+#  Enhanced 2015-2017 Josy Boelen
 #
 #  The myhdl library is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU Lesser General Public License as
@@ -34,12 +34,47 @@ from myhdl._intbv import intbv
 from myhdl._Signal import Signal, _Signal
 from myhdl._simulator import _siglist
 from myhdl._compat import integer_types
-from myhdl._ShadowSignal import ConcatSignal
+from myhdl._ShadowSignal import ConcatSignal, _ShadowSignal
 from myhdl._misc import m1Dinfo
 from myhdl._enum import EnumItemType
 
+from myhdl.tracejb import Tracing
 
-class Array( object ):
+trace = Tracing(False, source='_structured')
+
+# helper function
+
+
+def setnext(obj, value):
+    ''' a local function to do the work, recursively '''
+    if isinstance(obj, (list, Array)):
+        # recurse
+        for i, item in enumerate(obj):
+            setnext(item, value[i])
+    elif isinstance(obj, StructType):
+        if isinstance(value, StructType):
+            # assume the objects are of the same type ...
+            dests = vars(obj)
+            srcs = vars(value)
+            for key in dests:
+                setnext(dests[key], srcs[key])
+        else:
+            # the values are a collection of integers...
+            # use the sequencelist to enumerate the value
+            idx = 0
+            for key in obj.sequencelist:
+                if hasattr(obj, key):
+                    setnext(vars(obj)[key], value[idx])
+                    idx += 1
+
+    elif isinstance(obj, _Signal):
+        if isinstance(value, _Signal):
+            obj._setNextVal(value.val)
+        else:
+            obj._setNextVal(value)
+
+
+class Array(object):
     '''
     array(shape , dtype )
         shape:  1.: a tuple of int's specifying the dimensions,
@@ -50,10 +85,10 @@ class Array( object ):
                or either encapsulated in a Signal, e.g.: Signal( intbv(0, min = -8, max = 8))
     '''
 
-#     __slots__ = ('_array', '_next', '_init', '_val', '_name', '_dtype',
-#                  '_driven', '_read',
-#                  'element', 'levels', '_sizes', 'sizes' , 'totalelements', '_setNextVal'
-#             )
+    __slots__ = ('_array', '_next', '_init', '_val', '_name', '_dtype', '_nrbits',
+                 '_driven', '_read', '_isshadow', '_used', '_initialised', '_isSignal',
+                 'element', 'levels', 'shape', 'sizes', 'size', '_setNextVal'
+                 )
 
     def __init__(self, shape, dtype, vector=None):
         '''
@@ -75,74 +110,86 @@ class Array( object ):
         self._driven = False
         self._read = False
         self._used = False
-        self._sizes = None
+        self.shape = None
         self._array = None
         self._initialised = False
-        self._nrbits = 0
+        self._isSignal = False
+        self.size = 0
+        self._isshadow = False
         if isinstance(shape, list) and isinstance(dtype, Array):
             # wrapping a slice of an Array (a slice is a 'naked' list)
             # can copy a few attributes
             self._dtype = dtype._dtype
             self._isSignal = dtype._isSignal
             self.element = dtype.element
-            # dtype refers to the parent Array and thus hasn't got the sizes, levels, ... information, so 'inspect' the shape
-            self.levels, self._sizes, self.totalelements, _ = m1Dinfo( shape )
-            self._array = shape # this doesn't create new elements
+            self._driven = dtype._driven
+            self._isshadow = dtype._isshadow
+            self._name = dtype._name  # ? wonder, wonder ?
+            # dtype refers to the parent Array and thus hasn't got the sizes,
+            # levels, ... information, so 'inspect' the shape
+            self.levels, self.shape, self.size, _ = m1Dinfo(shape)
+            self._array = shape  # this does not create new elements
 
         else:
             if isinstance(shape, Array) and isinstance(dtype, _Signal):
-                # create an Array from SliceShadows 
+                # create an Array from SliceShadows
                 # or replace the signals in the given Array with SliceShadow
                 # break out to a function
-                shape.toArray( dtype )
+                shape.toArray(dtype)
 
             elif isinstance(shape, (Array, list)):
                 # an initialised list
                 # element remembers what the caller gave us
-                self.element = dtype
-                self._isSignal = isinstance(dtype, _Signal)
-                if self._isSignal:
-                    self._dtype = dtype._val
-                else:     
-                    self._dtype = dtype
-
-                self._initialised = True
                 # get the info
-                self.levels, self._sizes, self.totalelements, _ = m1Dinfo( shape )
+                self.levels, self.shape, self.size, self.element = m1Dinfo(shape)
                 if dtype is not None:
-                    if len(self._sizes) == 1:
+                    # element remembers what the caller gave us
+                    self.element = dtype
+                    self._isSignal = isinstance(dtype, _Signal)
+                    if self._isSignal:
+                        self._dtype = dtype._val
+                    else:
+                        self._dtype = dtype
+
+                    self._initialised = True
+                    if len(self.shape) == 1:
                         a = []
-                        for i in range(self._sizes[0]):
+                        for i in range(self.shape[0]):
                             if self._isSignal:
                                 if isinstance(self._dtype, intbv):
-                                    a.append( Signal( intbv( shape[i], min = self._dtype._min, max = self._dtype._max )))
+                                    a.append(Signal(intbv(shape[i], min=self._dtype._min, max=self._dtype._max)))
                                 elif isinstance(self._dtype, bool):
-                                    a.append( Signal( bool( shape[i] )))
+                                    a.append(Signal(bool(shape[i])))
                                 else:
                                     pass
                             else:
                                 if isinstance(self._dtype, intbv):
-                                    a.append( intbv(shape[i], min = self._dtype._min, max = self._dtype._max ))
+                                    a.append(intbv(shape[i], min=self._dtype._min, max=self._dtype._max))
                                 elif isinstance(self._dtype, bool):
-                                    a.append( bool(shape[i]) )
+                                    a.append(bool(shape[i]))
                                 else:
                                     # a structured object?
-                                    a.append( shape[i] ) # as it already is in a list we can use that 'element' no need to 'copy'
+                                    # as it already is in a list we can use
+                                    # that 'element' no need to 'copy'
+                                    a.append(shape[i])
                         self._array = a
-                    elif isinstance(self._sizes, list):
+                    else:
                         a = []
-                        for i in range( self._sizes[0]) :
-                            a.append( Array( shape[i], dtype ))
+                        for i in range(self.shape[0]):
+                            a.append(Array(shape[i], dtype))
                         self._array = a
                 else:
                     # 'Array from LoS'
-                    # assume we have received a list of valid Signals, possibly shadowslices of a vector
-                    self.levels, self._sizes, self.totalelements, self.element = m1Dinfo( shape )
-                    self._dtype = self.element._val
-                    assert isinstance(self.element, _Signal)
-                    self._isSignal = True 
-                    self._array = shape # this doesn't create new elements
-                    
+                    # assume we have received a list of Signals, possibly
+                    # shadowslices of a vector
+                    # or a list of other objects
+                    if isinstance(self.element, _Signal):
+                        self._dtype = self.element._val
+                        self._isSignal = True
+                    elif isinstance(self.element, StructType):
+                        #                         trace.print('Array from List Of StructTypes')
+                        self._dtype = self.element
+                    self._array = shape  # this doesn't create new elements
 
             elif isinstance(shape, tuple):
                 if isinstance(dtype, Array):
@@ -150,20 +197,21 @@ class Array( object ):
                     # we will handle this by extending the source Array
                     # make a new list of the sizes
                     nsizes = []
-                    for size in shape:
-                        nsizes.append(size)
-                    for size in dtype._sizes:
-                        nsizes.append(size)
+                    for dim in shape:
+                        nsizes.append(dim)
+                    for dim in dtype.shape:
+                        nsizes.append(dim)
                     # we now have a new Array descriptor
-                    narray = Array( tuple(nsizes), dtype.element)
+                    narray = Array(tuple(nsizes), dtype.element)
                     # copy over
                     self.element = narray.element
                     self._dtype = narray._dtype
                     self._isSignal = narray._isSignal
                     self._array = narray._array
-                    self._sizes = narray._sizes
+                    self.shape = narray.shape
                     self.levels = narray.levels
-                    self.totalelements = narray.totalelements
+                    self.size = narray.size
+                    self._driven = narray._driven
 
                 else:
                     # element remembers what the caller gave us
@@ -171,55 +219,59 @@ class Array( object ):
                     self._isSignal = isinstance(dtype, _Signal)
                     if self._isSignal:
                         self._dtype = dtype._val
-                    else:     
+                    else:
                         self._dtype = dtype
 
                     if vector is None:
-                        # all elements will be initialised to the value specified in 'dtype'
+                        # all elements will be initialised to the value
+                        # specified in 'dtype'
                         self.levels = len(shape)
-                        self._sizes = shape
-                        if len(self._sizes) == 1:
+                        self.shape = shape
+                        if len(self.shape) == 1:
                             a = []
-                            for _ in range(self._sizes[0]):
+                            for _ in range(self.shape[0]):
                                 if self._isSignal:
                                     if isinstance(self._dtype, intbv):
-                                        a.append( Signal( intbv( dtype._val, min = self._dtype._min, max = self._dtype._max )))
+                                        a.append(
+                                            Signal(intbv(dtype._val, min=self._dtype._min, max=self._dtype._max)))
                                     elif isinstance(self._dtype, bool):
-                                        a.append( Signal( bool( dtype._val )))
+                                        a.append(Signal(bool(dtype._val)))
                                     elif isinstance(self._dtype, EnumItemType):
-                                        a.append( Signal( self._dtype ))
+                                        a.append(Signal(self._dtype))
 
                                 else:
                                     if isinstance(self._dtype, intbv):
-                                        a.append( intbv( dtype._val, min = self._dtype._min, max = self._dtype._max ))
+                                        a.append(
+                                            intbv(dtype._val, min=self._dtype._min, max=self._dtype._max))
                                     elif isinstance(self._dtype, bool):
-                                        a.append( bool( dtype) )
+                                        a.append(bool(dtype))
                                     elif isinstance(self._dtype, StructType):
                                         # a StructType object
-                                        a.append( dtype.copy() )
+                                        a.append(dtype.copy())
                                     elif isinstance(self._dtype, list):
                                         pass
                                     else:
                                         # an interface
-                                        obj = copy.deepcopy( self._dtype )
+                                        obj = copy.deepcopy(self._dtype)
                                         # deepcopy drops the Signals ...
                                         # so mop it up
                                         srcvars = vars(self._dtype)
                                         for var in srcvars:
                                             if isinstance(srcvars[var], _Signal):
-                                                obj.__setattr__( var , Signal( srcvars[var]._val))
-                                        a.append( obj )
+                                                obj.__setattr__(
+                                                    var, Signal(srcvars[var]._val))
+                                        a.append(obj)
 
                             self._array = a
-                        elif isinstance(self._sizes, tuple):
+                        elif isinstance(self.shape, tuple):
                             a = []
-                            for _ in range( self._sizes[0]) :
-                                a.append( Array( shape[1:], dtype ))
+                            for _ in range(self.shape[0]):
+                                a.append(Array(shape[1:], dtype))
                             self._array = a
 
-                        self.totalelements = 1
-                        for size in self._sizes:
-                            self.totalelements *= size
+                        self.size = 1
+                        for dim in self.shape:
+                            self.size *= dim
                     else:
                         # we have a (large) Signal(intbv()) to cut into pieces
                         # dtype can be:
@@ -229,7 +281,6 @@ class Array( object ):
                         #    bool()
                         #    Signal(intbv())
                         # as we will only use this to derive the width and the signedness
-                        issigned = False
                         if isinstance(dtype, (int, long)):
                             pass
                         elif isinstance(dtype, (list, tuple)):
@@ -246,34 +297,35 @@ class Array( object ):
                             else:
                                 pass
                         else:
-                            raise ValueError("cannot infer width and signedness")
-    
+                            raise ValueError(
+                                "cannot infer width and signedness")
+
                         self.levels = len(shape)
-                        self._sizes = shape
-                        if len(self._sizes) == 1:
+                        self.shape = shape
+                        if len(self.shape) == 1:
                             a = []
-                            for _ in range(self._sizes[0]):
+                            for _ in range(self.shape[0]):
                                 pass
                         else:
                             # hand down
                             pass
-    
+
             else:
-                raise ValueError("Shape: {} of array is undefined".format( shape ))
+                raise ValueError(
+                    "Shape: {} of array is undefined".format(shape))
 
-            self._nrbits = (self.totalelements * self.element._nrbits) if not isinstance(self.element, bool) else self.totalelements
-
-
+            self._nrbits = (self.size * self.element._nrbits) \
+                if not isinstance(self.element, bool) else self.size
 
     def _update(self):
-        def collectwaiters(obj , waiterlist ):
+        def collectwaiters(obj, waiterlist):
             ''' a local recursive function to collect the 'waiters' '''
             if isinstance(obj[0], (list, Array)):
                 for item in obj:
                     collectwaiters(item, waiterlist)
             else:
                 for item in obj:
-                    waiterlist.extend( item._update() )
+                    waiterlist.extend(item._update())
 
         # delegate to Signal
         # collect the waiters for all Signals in the current Array
@@ -302,7 +354,7 @@ class Array( object ):
             return repr(self._array)
 
     def __repr__(self):
-        return "Array{} of {}". format(self._sizes, repr(self.element) )
+        return "Array{} of {}". format(self.shape, repr(self.element))
 
     def ref(self):
         ''' return a nice reference name for the object '''
@@ -311,38 +363,44 @@ class Array( object ):
         else:
             obj = self.element
 
-        if isinstance(obj, intbv): #self.elObj._nrbits is not None:
-            basetype = '{}{}'.format( 's' if obj._min < 0 else 'u', self.element._nrbits)
-        elif isinstance( obj, bool):
+        if isinstance(obj, intbv):  # self.elObj._nrbits is not None:
+            basetype = '{}{}'.format(
+                's' if obj._min < 0 else 'u', self.element._nrbits)
+        elif isinstance(obj, bool):
             basetype = 'b'
         elif isinstance(obj, StructType):
             basetype = obj.ref()
         else:
             raise AssertionError
 
-        for _, size in  enumerate( reversed( self._sizes )):
-            basetype = '{}_{}'.format( size, basetype)
+        for _, dim in enumerate(reversed(self.shape)):
+            basetype = 'a{}_{}'.format(dim, basetype)
         return basetype
 
     # length
+    # same behaviour as for multi-dimensional lists
     def __len__(self):
-        return self.totalelements
+        return len(self._array)
+
+    @property
+    def nbits(self):
+        return self.element._nrbits * self.size
 
     # get
     def __getitem__(self, *args, **kwargs):
-#         print(args, kwargs)
-        item =  self._array.__getitem__(*args, **kwargs)
-#         if isinstance( item, list):
-#             print( '{}: __getitem__ should never return a list?'.format(self._name))
-
-        return item
+        item = self._array.__getitem__(*args, **kwargs)
+        if isinstance(item, list):
+            #             trace.print('{}: __getitem__ should never return a list?'.format(self._name))
+            return Array(item, self)
+        else:
+            return item
 
     def __getslice__(self, *args, **kwargs):
-        sliver = self._array.__getslice__( *args , **kwargs)
-        if isinstance( sliver, list):
+        sliver = self._array.__getslice__(*args, **kwargs)
+        if isinstance(sliver, list):
             return Array(sliver, self)
         else:
-#             print( '__getslice__ should always return a list?')
+            #             trace.print('__getslice__ should always return a list?')
             return sliver
 
     # set ?
@@ -355,68 +413,83 @@ class Array( object ):
     # concatenate
     # will be tricky as we have to account for multiple dimensions!
     def __add__(self, other):
-#         print( 'StructType: __add__\n{} \n{}'.format( repr(self), repr(other)))
         if isinstance(self, Array):
-#             print( self._sizes)
+            #             trace.print( self.shape)
             if not isinstance(other, Array):
                 if isinstance(other, (_Signal, StructType)):
                     # a Signal or a StructType
                     if self.element._nrbits == other._nrbits:
                         self._array.append(other)
-                        self._sizes[0] += 1
+                        self.shape[0] += 1
                         self._nrbits += self.element._nrbits
-#                         print( self._array )
                     else:
-                        raise  ValueError( 'Number of bits dont\'t match {} {}' .format( self.element._nrbits, other._nrbits) )
+                        raise ValueError('Number of bits dont\'t match {} {}' .format(
+                            self.element._nrbits, other._nrbits))
             else:
                 if self.element._nrbits == other.element._nrbits:
                     pass
                 else:
-                    raise  ValueError( 'Number of bits dont\'t match {} {}' .format( self.element._nrbits, other.element._nrbits) )
+                    raise ValueError('Number of bits dont\'t match {} {}' .format(
+                        self.element._nrbits, other.element._nrbits))
         else:
             pass
 
         return self
 
     def __radd__(self, other):
-#         print( 'StructType: __radd__\n{} \n{}'.format( repr(self), repr(other)))
         if isinstance(self, Array):
-#             print( self._sizes)
             if not isinstance(other, Array):
                 if isinstance(other, (_Signal, StructType)):
                     # a Signal or a StructType
                     if self.element._nrbits == other._nrbits:
                         self._array.insert(0, other)
-                        self._sizes[0] += 1
+                        self.shape[0] += 1
                         self._nrbits += self.element._nrbits
-#                         print( self._array )
                     else:
-                        raise  ValueError( 'Number of bits dont\'t match {} {}' \
-                                           .format( self.element._nrbits, other._nrbits) )
+                        raise ValueError('Number of bits dont\'t match {} {}'
+                                         .format(self.element._nrbits, other._nrbits))
                 else:
                     # must be an int??
                     newsig = self.element.copy()
                     newsig._val._val = other
                     self._array.insert(0, newsig)
-                    self._sizes[0] += 1
+                    self.shape[0] += 1
                     self._nrbits += self.element._nrbits
-#                     print( self._array )
             else:
                 if self.element._nrbits == other.element._nrbits:
                     pass
                 else:
-                    raise  ValueError( 'Number of bits dont\'t match {} {}' \
-                                       .format( self.element._nrbits, other.element._nrbits) )
+                    raise ValueError('Number of bits dont\'t match {} {}'
+                                     .format(self.element._nrbits, other.element._nrbits))
         else:
             pass
 
         return self
-    
 
     # support for the 'val' attribute
     @property
     def val(self):
-        return self._array
+        ''' produce a multi-dimensional list of the value of the elements '''
+        def getvals(obj, rval):
+            ''' a recursive routine '''
+            if isinstance(obj[0], (list, Array)):
+                for item in obj:
+                    rrval = []
+                    getvals(item, rrval)
+                    rval.append(rrval)
+            else:
+                if isinstance(self.element, _Signal):
+                    for item in obj:
+                        # this will work for both intbv and bool
+                        # what about fixbv?
+                        rval.append(int(item.val))
+                elif isinstance(self.element, StructType):
+                    for item in obj:
+                        rval.append(item.val)
+
+        rval = []
+        getvals(self, rval)
+        return rval
 
     # support for the 'next' attribute
     @property
@@ -426,40 +499,64 @@ class Array( object ):
 
     @next.setter
     def next(self, val):
-        if isinstance(val, Array ):
+        #         trace.print(self, ' <- ', val)
+        if isinstance(val, Array):
             val = val._array
             self._setNextVal(val)
             _siglist.append(self)
         elif isinstance(val, list):
             self._setNextVal(val)
             _siglist.append(self)
+        elif isinstance(val, tuple):
+            # assume only one level of depth for now
+            idxl = 0
+            idxh = 0
+            for subval in val:
+                if isinstance(subval, Array):
+                    #                     trace.print('Array', repr(subval))
+                    idxh += len(subval)
+                    dst = self[idxl:idxh]
+                    setnext(dst, subval._array)
+                    idxl = idxh
+                    _siglist.append(dst)
+                elif isinstance(subval, _Signal):
+                    # Signal or SructType
+                    setnext(self[idxh], subval)
+                    idxh += 1
+                    idxl = idxh
+                elif isinstance(subval, tuple):
+                    raise ValueError('Don\'t handle tuple(s) in tuple')
+                else:
+                    raise ValueError('Only handle Arrays and Signals')
+            _siglist.append(self)
 
     def _setNextVal(self, val):
+        setnext(self, val)
 
-        def setnext( obj, value):
-            ''' a local function to do the work, recursively '''
-            if isinstance(obj[0], (list, Array)):
-                for i, item in enumerate( obj ):
-                    setnext( item, value[i] )
-            else:
-                if isinstance(value[0], _Signal):
-                    for i, s  in enumerate( obj ):
-                        s._setNextVal( value[i].val )
-                else:
-                    for i, s  in enumerate( obj ):
-                        s._setNextVal( value[i] )  
-
-        setnext( self, val )
- 
     # support for the 'driven' attribute
     @property
     def driven(self):
-        return self._driven
+        def ldriven(obj):
+            ''' a local function to do the work, recursively '''
+            if isinstance(obj[0], (list, Array)):
+                for item in obj:
+                    if ldriven(item):
+                        return True
+            else:
+                # lowest level
+                for item in obj:
+                    if item.driven:
+                        return True
+                return False
+
+        trace.print('Array.driven;', self._name, self._driven, ldriven(self))
+        return self._driven or ldriven(self)
 
     @driven.setter
     def driven(self, val):
-        if not val  in ("reg", "wire", True):
-            raise ValueError('Expected value "reg", "wire", or True, got "%s"' % val)
+        if not val in ("reg", "wire", True):
+            raise ValueError(
+                'Expected value "reg", "wire", or True, got "%s"' % val)
         self._driven = val
 
     # support for the 'read' attribute
@@ -469,7 +566,7 @@ class Array( object ):
 
     @read.setter
     def read(self, val):
-        if not val in (True, ):
+        if not val in (True,):
             raise ValueError('Expected value True, got "%s"' % val)
         self._markRead()
 
@@ -480,112 +577,180 @@ class Array( object ):
     def _markUsed(self):
         self._used = True
 
- 
-    ### use call interface for shadow signals ###
-    def __call__(self, left = None, right=None, signed = False):
-        ''' build a new Array
-        making it from (possibly) sliced signals
-        '''
-        # need a local recursive function
-        def makenext( obj, top):
+    # support for the 'isshadow' attribute
+    @property
+    def isshadow(self):
+        def lisshadow(obj):
             ''' a local function to do the work, recursively '''
             if isinstance(obj[0], (list, Array)):
-                for item in obj :
+                for item in obj:
+                    if lisshadow(item):
+                        return True
+            else:
+                # lowest level
+                for item in obj:
+                    if item._driven:
+                        return True
+                return False
+
+        trace.print('Array.isshadow:', self._name, self._isshadow, lisshadow(self))
+        return self._isshadow or lisshadow(self)
+
+    ### use call interface for shadow signals ###
+    def __call__(self, start=None, end=None, stride=None, left=None, right=None, signed=False):
+        ''' build a new Array
+            making it from (possibly) sliced signals
+        '''
+        # need a local recursive function
+        def makenext(obj, top):
+            ''' a local function to do the work, recursively '''
+            if isinstance(obj[0], (list, Array)):
+                for item in obj:
                     lower = []
-                    makenext( item, lower )
+                    makenext(item, lower)
                     top.append(lower)
             else:
                 # lowest level
                 for sig in obj:
-                    # forward to _Signal (must be a Signal!)
-                    top.append( sig(left, right, signed) )
+                    if isinstance(sig, _Signal):
+                        # forward to _Signal (sig must be a Signal!)
+                        top.append(sig(left, right, signed))
+                    else:
+                        # a StructType?
+                        top.append(sig())
 
+#         trace.print('Calling {} with {}, {}, {}, {}, {}, {}'.format(repr(self), start, end, stride, left, right, signed))
         if isinstance(self.element, _Signal):
+            #             trace.print(repr(self))
             top = []
-            makenext(self, top)
-#             print( 'Array: {}() {} {} {} {}:'.format(id(self), left, right, signed, repr(top)))
-            return Array(top, None)
-        else:
-            raise ValueError('Can only slice Signals (for now) <> {}'.format(repr(self.element)))
+            if stride is not None:
+                if start is not None:
+                    if end is not None:
+                        makenext(self[start:end:stride], top)
+                    else:
+                        makenext(self[start::stride], top)
+                else:
+                    if end is not None:
+                        makenext(self[:end:stride], top)
+                    else:
+                        makenext(self[::stride], top)
+            else:
+                if start is not None:
+                    if end is not None:
+                        makenext(self[start:end], top)
+                    else:
+                        makenext(self[start:], top)
+                else:
+                    if end is not None:
+                        makenext(self[:end], top)
+                    else:
+                        makenext(self, top)
 
-    def toArray(self, vector):
+            r = Array(top, None)
+            r._isshadow = True
+#             trace.print(repr(r))
+            return r
+        else:
+            if start is None and left is None:
+                top = []
+                makenext(self, top)
+                r = Array(top, None)
+                r._isshadow = True
+#                 trace.print(repr(r))
+                return r
+            else:
+                raise ValueError('Can only slice Signals (for now) <> {}'.format(repr(self.element)))
+
+    def fromintbv(self, vector, idx=0):
         ''' replace the elements of an Array by SliceSignals '''
         # a local function
-        def _toA( a, v):
-            ''' a local recursive function '''
-            if len(a._sizes) == 1:
-                for i in range(a._sizes[0]):
-                    a._array[i] = v(len(a._dtype),0)
-            else:
-                for i in range(a._sizes[0]):
-                    _toA( a[i], v)
+#         _o = 0
 
-        _toA(self, vector)
+        def _toA(a, _o):
+            ''' a local recursive function '''
+#             trace.print('  entering _toA', id(a), repr(a), id(vector), repr(vector), _o)
+            if len(a.shape) == 1:
+                if isinstance(a.element, _Signal):
+                    #                     trace.print('  len.(a.shape)==1', repr(a))
+                    for i in range(a.shape[0]):
+                        a._array[i] = vector(_o + len(a._dtype), _o)
+                        _o += len(a._dtype)
+#                     trace.print('  ', a)
+                elif isinstance(a.element, StructType):
+                    for i in range(a.shape[0]):
+                        a._array[i] = a.element.fromintbv(vector, _o)
+                        _o += len(a._dtype)
+
+            else:
+                for i in range(a.shape[0]):
+                    _toA(a[i], _o)
+        # this the start
+#         trace.print('Array.fromintbv(): start:', repr(self), str(self), self)
+        _toA(self, idx)
+        self._isshadow = True
+#         trace.print('end:', repr(self), str(self), self)
+
+    def toVHDL(self):
+        ''' 
+            emit the VHDL code
+            to assign the shadowsignals
+        '''
+        lines = []
+
+        def _tovhdl(a, name):
+            ''' a local recursive function '''
+            if len(a.shape) == 1:
+                if isinstance(a.element, _Signal):
+                    for i in range(a.shape[0]):
+                        lines.append(a._array[i].toVHDL())
+                elif isinstance(a.element, StructType):
+                    for i in range(a.shape[0]):
+                        lines.extend(a._array[i].toVHDL())
+
+            else:
+                for i in range(a.shape[0]):
+                    _tovhdl(a[i], '{}({})'.format(name, i))
+
+        if not self._isshadow:
+            raise ValueError('Cannot emit VHDL code for non-shadowed Array')
+
+        #
+#         trace.print('Emitting Array Shadow VHDL code for {}\n\t{}\n\t{}'.format(self._name, repr(self), self))
+        _tovhdl(self, self._name)
+        return lines
 
     def tointbv(self):
         ''' concatenates all elements '''
-        def collect(obj , harvest):
+        def collect(obj, harvest):
             ''' a local recursive function '''
-#             print(repr(obj), obj._sizes)
-            if len(obj._sizes) == 1:
-#                 print('Last round')
+            if len(obj.shape) == 1:
                 if isinstance(obj.element, _Signal):
-                    for i in range(obj._sizes[0]):
-#                         print('.', end='')
+                    for i in range(obj.shape[0]):
                         harvest.append(obj[i])
-#                     print(harvest)
                 elif isinstance(obj.element, StructType):
-                    for i in range(obj._sizes[0]):
-                        collect(obj, harvest)
+                    for i in range(obj.shape[0]):
+                        harvest.extend(obj.tointbv())
                 else:
-#                     print('not handled?')
                     pass
             else:
-                for i in range(obj._sizes[0]):
+                for i in range(obj.shape[0]):
                     collect(obj[i], harvest)
 
-#         print('Array: tointbv() {}'.format(repr(self)))
         harvest = []
-        collect(self , harvest)
+        collect(self, harvest)
+        val = 0
+#         for hh in reversed(harvest):
+#             # hh must be a signal
+#             val += (val << hh._nrbits) + hh._val
+#         return Signal(intbv(val, _nrbits=self.element._nrbits * len(harvest))
         return ConcatSignal(*reversed(harvest))
-#         return concat( *reversed(harvest))
-
-    def flatten(self):
-        ''' concatenates all elements '''
-        def collect(obj , harvest):
-            ''' a local recursive function '''
-#             print(repr(obj), obj._sizes)
-            if len(obj._sizes) == 1:
-#                 print('Last round')
-                if isinstance(obj.element, _Signal):
-                    for i in range(obj._sizes[0]):
-#                         print('.', end='')
-                        harvest.append(obj[i])
-#                     print(harvest)
-                elif isinstance(obj.element, StructType):
-                    for i in range(obj._sizes[0]):
-                        collect(obj, harvest)
-                else:
-#                     print('not handled?')
-                    pass
-            else:
-                for i in range(obj._sizes[0]):
-                    collect(obj[i], harvest)
-
-#         print('Array: tointbv() {}'.format(repr(self)))
-        harvest = []
-        collect(self , harvest)
-        return harvest
-#         return concat( *reversed(harvest))
-
 
     def copy(self):
         ''' return a new instance '''
-        return Array( self._sizes , self.element)
+        return Array(self.shape, self.element)
 
 
-
-class StructType( object ):
+class StructType(object):
     ''' a base class
         makes sure we can discriminate between our 'Struct' type and the 'interface' type
         provides the methods
@@ -605,66 +770,95 @@ class StructType( object ):
         self._driven = False
         self._read = False
         self._name = None
-        
+        self._isshadow = False
+
         if args and len(args) > 2:
-#             print( 'combining objects into a StructType' )
+            self._nrbits = 0
             self.__class__.__name__ = args[0]
             self.sequencelist = args[1]
-            for i, key in enumerate( args[1] ):
-#                 print( key )
-                setattr(self, key, args[2+i])
-                self._nrbits += args[2+i]._nrbits 
-                  
-#             print(repr( self ))
-            
-    def __len__(self):
-        return self._nrbits
+            for i, key in enumerate(args[1]):
+                setattr(self, key, args[2 + i])
+                self._nrbits += len(args[2 + i])
 
-    # accessible
+    @property
+    def nbits(self):
+        if self._nrbits == 0:
+            # work out
+            if self.sequencelist:
+                objlist = []
+                for description in self.sequencelist:
+                    # skip over 'not present' members
+                    if hasattr(self, description):
+                        objlist.append(getattr(self, description))
+            else:
+                objlist = [vars(self)[key] for key in vars(self).keys()]
+
+            lnrbits = 0
+            for item in objlist:
+                if isinstance(item, _Signal):
+                    lnrbits += len(item)
+                else:
+                    lnrbits += item.nbits
+
+            self._nrbits = lnrbits
+        # always defined
+        return self._nrbits
 
     def tointbv(self):
         ''' returns a Signal of the concatenated bits '''
-        def collect( obj ):
+        self._tisigs = []
+
+        def collect(obj):
             ''' using a local routine to do the work '''
-            sigs = []
 
             if obj.sequencelist:
                 objlist = []
                 for description in obj.sequencelist:
                     # skip over 'not present' members
                     if hasattr(obj, description):
-                        objlist.append(getattr(obj, description) )
+                        objlist.append(getattr(obj, description))
             else:
-                objlist = [ vars(obj)[key] for key in vars(obj).keys()  ]
+                objlist = [vars(obj)[key] for key in vars(obj).keys()]
 
             for item in objlist:
+                #                 trace.print(repr(item))
                 # must nest structured types
-                if isinstance( item, StructType ):
-                    sigs.extend( collect( item ))
+                if isinstance(item, StructType):
+                    #                     trace.print('calling StructType.tointbv()', item)
+                    ati = item.tointbv()
+#                     trace.print(repr(ati))
+                    self._tisigs.append(ati)
+#                     self._tisigs.extend(collect(item))
                 elif isinstance(item, Array):
-                    sigs.extend( item.tointbv() )
+                    #                     trace.print('calling Array.tointbv()', item)
+                    ati = item.tointbv()
+#                     trace.print(repr(ati))
+                    self._tisigs.append(ati)
+#                     trace.print('called Array.tointbv()')
+
                 elif isinstance(item, _Signal):
-                    sigs.append( item  )
-                elif isinstance(item, (int, long)):
+                    self._tisigs.append(item)
+                elif isinstance(item, (int, long, str)):
                     pass
                 else:
                     pass
+#             trace.print('collecting', self._tisigs)
 
-            return sigs
+#         trace.print('StructType: tointbv', repr(self))
+        collect(self)
+#         trace.print('collected', self._tisigs)
+        return ConcatSignal(*reversed(self._tisigs))
 
-        siglist = collect( self )
-        return ConcatSignal(  *reversed( siglist  ) )
-
-    def toStructType(self, vector):
+    def fromintbv(self, vector, idx=0):
         ''' split a (large) intbv into a StructType '''
+#         trace.print('StructType: fromintbv:\n\t{}\n\t{}'.format(repr(self), repr(vector)))
         if self.sequencelist is None:
-            raise ValueError( 'Need a sequencelist to correctly assign StructType members')
+            raise ValueError('Need a sequencelist to correctly assign StructType members\n{}'.format(repr(self)))
 
-        idx = 0
         for key in self.sequencelist:
             if hasattr(self, key):
                 obj = vars(self)[key]
-                if isinstance(obj , _Signal):
+                if isinstance(obj, _Signal):
                     if isinstance(obj._val, intbv):
                         # take care of unsigned/signed
                         vars(self)[key] = vector(idx + obj._nrbits, idx)
@@ -675,22 +869,47 @@ class StructType( object ):
                         idx += 1
 
                 elif isinstance(obj, Array):
-                    obj.toArray(vector( idx + obj._nrbits, idx))
-                    idx +=  obj._nrbits
+                    #                     trace.print('StructType.fromintbv(): Array', key, repr(obj), obj.nbits)
+                    obj.fromintbv(vector, idx)
+                    idx += obj.nbits
 
                 elif isinstance(obj, StructType):
-                    obj.toStructType(vector( idx + obj._nrbits, idx))
-                    idx +=  obj._nrbits
+                    #                     trace.print('StructType.fromintbv(): StructType', key, repr(obj), obj.nbits)
+                    obj.fromintbv(vector, idx)
+                    idx += obj.nbits
 
                 elif isinstance(obj, integer_types):
                     pass
 
                 else:
                     pass
-    
-    def __repr__(self):
-        return 'StructType {} {}'.format( self.__class__.__name__, vars( self ))
+        self._isshadow = True
+#         trace.print('\t', repr(self))
 
+    def toVHDL(self):
+        ''' 
+            emit the VHDL code
+            to assign the shadowsignals
+        '''
+        if not self._isshadow:
+            raise ValueError('Cannot emit VHDL code for non-shadowed StructType {}'.format(self._name))
+
+#         trace.print('Emitting StructType Shadow VHDL code for {}'.format(self._name))
+        lines = []
+        for key in self.sequencelist:
+            if hasattr(self, key):
+                obj = vars(self)[key]
+                if isinstance(obj, _Signal):
+                    lines.append(obj.toVHDL())
+                elif isinstance(obj, (Array, StructType)):
+                    lines.extend(obj.toVHDL())
+        return lines
+
+    def __repr__(self):
+        if self._isshadow:
+            return 'Shadow of StructType {} {}'.format(self.__class__.__name__, vars(self))
+        else:
+            return 'StructType {} {}'.format(self.__class__.__name__, vars(self))
 
     def copy(self):
         ''' return a new object '''
@@ -702,23 +921,25 @@ class StructType( object ):
         for var in srcvars:
             obj = srcvars[var]
             if isinstance(obj, _Signal):
-                nobj.__setattr__( var , Signal( obj._val))
+                nobj.__setattr__(var, Signal(obj._val))
             elif isinstance(obj, (StructType, Array)):
-                nobj.__setattr__( var, obj.copy() )
+                nobj.__setattr__(var, obj.copy())
             elif isinstance(obj, list):
                 # List of anything
                 # presumably Signal, Array, StructType
                 # but anything goes?
-                siglist = []
-                for sig in obj:
-                    siglist.append(sig.copy())
-                nobj.__setattr__( var , siglist )
+                if isinstance(obj[0], (_Signal, Array, StructType)):
+                    siglist = []
+                    for sig in obj:
+                        siglist.append(sig.copy())
+                    nobj.__setattr__(var, siglist)
+                else:
+                    nobj.__setattr__(var, copy.deepcopy(obj))
             else:
                 # fall back for others
-                nobj.__setattr__( var , copy.deepcopy(obj))
+                nobj.__setattr__(var, copy.deepcopy(obj))
 
         return nobj
-
 
     def ref(self):
         ''' returns a condensed name representing the contents of the StructType, starting with the __class__ name'''
@@ -728,9 +949,10 @@ class StructType( object ):
             for key in self.sequencelist:
                 if hasattr(self, key):
                     obj = vars(self)[key]
-                    if isinstance(obj , _Signal):
+                    if isinstance(obj, _Signal):
                         if isinstance(obj._val, intbv):
-                            retval = ''.join((retval, '_{}{}'.format( 's' if obj._min < 0 else 'u', obj._nrbits )))
+                            retval = ''.join(
+                                (retval, '_{}{}'.format('s' if obj._min < 0 else 'u', obj._nrbits)))
                         else:
                             retval = ''.join((retval, '_b'))
 
@@ -738,7 +960,7 @@ class StructType( object ):
                         retval = ''.join((retval, '_', obj.ref()))
 
                     elif isinstance(obj, StructType):
-                        retval = ''.join((retval, '_',  obj.ref(), '_j'))
+                        retval = ''.join((retval, '_', obj.ref(), '_j'))
 
                     elif isinstance(obj, integer_types):
                         pass
@@ -749,43 +971,91 @@ class StructType( object ):
                     retval = ''.join((retval, '_n'))
 
         else:
-            for key in  vars( self ).keys():
-                obj = vars( self )[key]
-                if isinstance(obj , _Signal):
-                        if isinstance(obj._val, intbv):
-                            retval+= '_{}{}'.format( 's' if obj._min < 0 else 'u', obj._nrbits )
-                        else:
-                            retval += '_b'
-     
+            for key in vars(self).keys():
+                obj = vars(self)[key]
+                if isinstance(obj, _Signal):
+                    if isinstance(obj._val, intbv):
+                        retval += '_{}{}'.format('s' if obj._min <
+                                                 0 else 'u', obj._nrbits)
+                    else:
+                        retval += '_b'
+
                 elif isinstance(obj, Array):
                     retval += '_' + obj.ref()
-                                    
+
                 elif isinstance(obj, StructType):
                     retval += '_' + obj.ref() + '_j'
-     
+
                 elif isinstance(obj, integer_types):
                     pass
-     
+
                 else:
                     pass
- 
+
         return retval
 
-
     def _setNextVal(self, val):
-        refs = vars( self )
-        vargs = vars( val )
-        for key in refs:
-            dst = refs[key]
-            if isinstance( dst, _Signal):
-                src = vargs[key]
-                if isinstance(src, _Signal):
-                    dst._setNextVal( src._val)
-                else:
-                    dst._setNextVal(src) 
-            elif isinstance(dst, (Array, StructType)):
-                dst._setNextVal(vargs[key])
+        refs = vars(self)
+        if isinstance(val, StructType):
+            vargs = vars(val)
+            for key in refs:
+                dst = refs[key]
+                if isinstance(dst, _Signal):
+                    src = vargs[key]
+                    if isinstance(src, _Signal):
+                        dst._setNextVal(src._val)
+                    else:
+                        dst._setNextVal(src)
+                elif isinstance(dst, (Array, StructType)):
+                    dst._setNextVal(vargs[key])
+        elif isinstance(val, tuple):
+            if self.sequencelist is None:
+                raise ValueError('Need a well defined order of assignments -> sequencelist')
+            else:
+                # handle the each entry in the sequencelist
+                # first do a few checks
+                assert len(self.sequencelist) == len(val), \
+                    'Number of elements in aggregate  tuple don\'t match StructType'
+                idx = 0
+                for key in self.sequencelist:
+                    # do not process the 'None' in the tuple
+                    if val[idx] is not None:
+                        obj = vars(self)[key]
+                        obj._setNextVal(val[idx])
+                    idx += 1
 
+        elif isinstance(val, integer_types):
+            pass
+
+    ### use call interface for shadow signals ###
+    def __call__(self):
+        ''' build a new StructType
+            but from ShadowSignals
+        '''
+        # copy the StructType
+        top = self.copy()
+        # replace the Signals, Arrays, StructTypes by ShadowSignals
+        refs = vars(self)
+        for key in refs:
+            src = refs[key]
+            if isinstance(src, (_Signal, Array, StructType)):
+                top.__setattr__(key, src())
+#             elif isinstance(src, list):
+#                 # List of anything
+#                 # presumably Signal, Array, StructType
+#                 # but anything goes?
+#                 siglist = []
+#                 for sig in src:
+#                     if isinstance(sig, (_Signal, Array, StructType)):
+#                         siglist.append(sig())
+#                 if siglist:
+#                     top.__setattr__(key, siglist)
+#
+#             else:
+#                 top.__setattr__(key, src)
+        top._driven = True
+        top._isshadow = True
+        return top
 
     def _update(self):
         ''' collect the waiters for all object in the current StructType 
@@ -795,180 +1065,214 @@ class StructType( object ):
         refs = vars(self)
         for key in refs:
             obj = refs[key]
-            if isinstance( obj, (_Signal, StructType, Array)):
-                waiters.extend( obj._update() )
+            if isinstance(obj, (_Signal, StructType, Array)):
+                waiters.extend(obj._update())
             elif isinstance(obj, list):
                 for lobj in obj:
-                    waiters.extend( lobj._update() )
+                    if isinstance(lobj, (_Signal, Array, StructType)):
+                        waiters.extend(lobj._update())
 
         return waiters
 
-
     def initial(self, targetlanguage):
         ''' return the initialiser '''
-        refs = vars( self )
+        refs = vars(self)
         inits = []
         for key in refs:
             obj = refs[key]
             if targetlanguage == 'vhdl':
-                if isinstance( obj, _Signal):
+                if isinstance(obj, _Signal):
                     if isinstance(obj._val, bool):
-                        inits.append("%s => '%s', " % (key,  1 if obj._val else 0))
+                        inits.append("%s => '%s', " %
+                                     (key, 1 if obj._val else 0))
                     elif isinstance(obj._val, intbv):
-                        inits.append("%s => \"%s\", " % (key, myhdlbin(obj._val, obj._nrbits)))
+                        if obj._val:
+                            inits.append("%s => \"%s\", " %
+                                         (key, myhdlbin(obj._val, obj._nrbits)))
+                        else:
+                            inits.append("%s => (others => '0'), " % key)
                     elif isinstance(obj._val, EnumItemType):
                         inits.append("%s => %s, " % (key, obj._val))
                 elif isinstance(obj, StructType):
-                    # one down 
-                    inits.append( '{} => ( {} ), '.format(key, obj.initial(targetlanguage)))
+                    # one down
+                    inits.append(
+                        '{} => ( {} ), '.format(key, obj.initial(targetlanguage)))
                 elif isinstance(obj, Array):
-                    inits.append('{} => {}, '.format(key, obj.initial(targetlanguage)))
+                    inits.append(
+                        '{} => {}, '.format(key, obj.initial(targetlanguage)))
             else:
                 pass
         rstr = ''.join(inits)
         return rstr[:-2]
-        
-        
-        
+
     # support for the 'next' attribute
     @property
     def next(self):
-#         # must drill down into the list ?
-#         _siglist.append(self)
-#         return self._next
+        #         # must drill down into the list ?
+        #         _siglist.append(self)
+        #         return self._next
         # this is only a placeholder?
         pass
-    
+
     @next.setter
     def next(self, val):
         self._setNextVal(val)
         _siglist.append(self)
 
-
     # support for the 'driven' attribute
     @property
     def driven(self):
-        return self._driven
+        refs = vars(self)
+        for key in refs:
+            obj = refs[key]
+            if isinstance(obj, _Signal):
+                if obj.driven:
+                    return True
+            elif isinstance(obj, (Array, StructType)):
+                if obj.driven:
+                    return True
+        return False
+    #         return self._driven
 
     @driven.setter
     def driven(self, val):
-        if not val  in ("reg", "wire", True):
-            raise ValueError('Expected value "reg", "wire", or True, got "%s"' % val)
+        if not val in ("reg", "wire", True):
+            raise ValueError(
+                'Expected value "reg", "wire", or True, got "%s"' % val)
         self._driven = val
 
+    # support for the 'isshadow' attribute
+    @property
+    def isshadow(self):
+        refs = vars(self)
+        for key in refs:
+            obj = refs[key]
+            if isinstance(obj, _ShadowSignal):
+                return True
+            elif isinstance(obj, (Array, StructType)):
+                if obj.isshadow:
+                    return True
+        return False
 
 
 if __name__ == '__main__':
     import random
 
-    print( '====Exercising StructType ====')
-    class Newclass( StructType ):
-        ''' a new class derived from Dynclass '''
-        def __init__(self):
-            # must init the superclass
-            super(Newclass, self).__init__()
-            # add members
-            self.a = Signal(intbv(6)[4:])
-            self.b = Signal(bool( False))
-            self.c = Signal(bool( True))
-            self.d = Signal(intbv(3, min=-4, max=15))
+    def main():
+        print('====Exercising StructType ====')
 
-    nc = Newclass()
+        class Newclass(StructType):
+            ''' a new class derived from Dynclass '''
 
-    print( 'nc: {}' .format( nc ))
+            def __init__(self):
+                # must init the superclass
+                super(Newclass, self).__init__()
+                # add members
+                self.a = Signal(intbv(6)[4:])
+                self.b = Signal(bool(False))
+                self.c = Signal(bool(True))
+                self.d = Signal(intbv(3, min=-4, max=15))
 
-#     for item in inspect.getmembers( nc):
-#         print( item )
-#     print( '================')
-    print( 'nc.a: ', repr(nc.a) )
-    print( 'nc.b: ', repr(nc.b) )
-    print( 'nc.c: ', repr(nc.c) )
-    print( 'nc.d: ', repr(nc.d) )
-    print( 'nc: intbv: ', hex(nc.tointbv()))
+        nc = Newclass()
 
-    print( 'nc._nrbits: ', nc._nrbits )
-    print( 'nc.ref(): {}'.format( nc.ref()) )
-    print( '================')
-    class Newclass2( StructType ):
-        ''' another new class derived from Dynclass '''
-        def __init__(self):
-            # must init the superclass
-            super(Newclass2, self).__init__()
-            # add members
-            self.nc = Newclass()
-            self.e =  Signal(intbv(10)[4:])
+        print('nc: {}' .format(nc))
 
-    nc2 = Newclass2()
+    #     for item in inspect.getmembers( nc):
+    #         print( item )
+    #     print( '================')
+        print('nc.a: ', repr(nc.a))
+        print('nc.b: ', repr(nc.b))
+        print('nc.c: ', repr(nc.c))
+        print('nc.d: ', repr(nc.d))
+        print('nc: intbv: ', hex(nc.tointbv()))
 
-    print( 'nc2: {}' .format( nc2 ))
-#     for item in inspect.getmembers( nc2):
-#         print( item )
-#     print( '================')
+        print('nc._nrbits: ', nc._nrbits)
+        print('nc.ref(): {}'.format(nc.ref()))
+        print('================')
 
-    print( 'nc2: intbv: ', hex(nc2.tointbv()))
-    print( 'nc2.nc.a: ', repr(nc2.nc.a))
-    print( 'nc2.ref(): {}'.format( nc2.ref()) )
-    print( '================')
+        class Newclass2(StructType):
+            ''' another new class derived from Dynclass '''
 
-    class Newclass3( StructType ):
-        ''' another new class derived from Dynclass '''
-        def __init__(self):
-            # must init the superclass
-            super(Newclass3, self).__init__()
-            self.nc2 =  nc2
-            self.f =  Signal(intbv(10)[4:])
-            self.r = Array((2,2), Signal( intbv(0)[4:]))
-            self.nca = Array((2,2), nc)
+            def __init__(self):
+                # must init the superclass
+                super(Newclass2, self).__init__()
+                # add members
+                self.nc = Newclass()
+                self.e = Signal(intbv(10)[4:])
 
-    nc3 = Newclass3()
+        nc2 = Newclass2()
 
-    print( 'nc3: {}' .format( nc3 ))
-    print( 'nc3.nc2.nc.c: {}'.format( repr( nc3.nc2.nc.c)))
-    print( 'nc3.r: {}'.format( repr( nc3.r)))
-    print( 'nc3.nca: {}'.format( repr( nc3.nca)))
-    print( 'cc3.ref(): {}'.format( nc3.ref()) )
-    print( '================')
-    nc4 = nc3.copy()
-    print( 'nc4: {}' .format( nc4 ))
-    print( '================')    
+        print('nc2: {}' .format(nc2))
+    #     for item in inspect.getmembers( nc2):
+    #         print( item )
+    #     print( '================')
 
+        print('nc2: intbv: ', hex(nc2.tointbv()))
+        print('nc2.nc.a: ', repr(nc2.nc.a))
+        print('nc2.ref(): {}'.format(nc2.ref()))
+        print('================')
 
-    print( '====Exercising Aray ====')
-    print( '= intbv =====')
-    a0 = Array( (6,5,4,3), intbv(0)[8:])
-    print( a0 )
-    print( repr(a0) )
-    print( '== Indexing=====')
-    print( repr(a0[0]))
-    print( repr(a0[1][0]))
-    print( repr(a0[2][1][0]))
-    print( repr(a0[3][2][1][0]))
-    print( repr(a0[3][2][1][:2]))
-    print( '== Slicing ==')
-    print( repr(a0[1:3]))
-    print( repr(a0[1][1:3]))
-    print( 'a0.ref(): {}'.format( a0.ref()) )
+        class Newclass3(StructType):
+            ''' another new class derived from Dynclass '''
 
-    print( '= intbv signed =====')
-    a1 = Array( (4,3,2), intbv(0, min = -128, max =128))
-    print( a1 )
-    print( repr( a1 ))
-    print( 'a1.ref(): {}'.format( a1.ref()) )
+            def __init__(self):
+                # must init the superclass
+                super(Newclass3, self).__init__()
+                self.nc2 = nc2
+                self.f = Signal(intbv(10)[4:])
+                self.r = Array((2, 2), Signal(intbv(0)[4:]))
+                self.nca = Array((2, 2), nc)
 
-    print( '= initialised intbv =====')
-    ll = [[[  1 + i + j * 2 + k * 3 * 2 for i in range(2)] for j in range(3)] for k in range(4)]
-    print( ll )
-    b = Array( ll, intbv(0)[8:])
-    print( b )
-    print( repr(b) )
-    
-    print( '= bool =====')
-    b = Array( (3,3), bool(0))
-    print( repr(b) )
-    
-    print( '= initialised bool =====')
-    bl = [[ random.randint(0,1) for _ in range(2)] for __ in range(4)]
-    print( bl )
-    b1 = Array( bl, bool(0) )
-    print( repr( b1 ) )
-    
+        nc3 = Newclass3()
+
+        print('nc3: {}' .format(nc3))
+        print('nc3.nc2.nc.c: {}'.format(repr(nc3.nc2.nc.c)))
+        print('nc3.r: {}'.format(repr(nc3.r)))
+        print('nc3.nca: {}'.format(repr(nc3.nca)))
+        print('cc3.ref(): {}'.format(nc3.ref()))
+        print('================')
+        nc4 = nc3.copy()
+        print('nc4: {}' .format(nc4))
+        print('================')
+
+        print('====Exercising Aray ====')
+        print('= intbv =====')
+        a0 = Array((6, 5, 4, 3), intbv(0)[8:])
+        print(a0)
+        print(repr(a0))
+        print('== Indexing=====')
+        print(repr(a0[0]))
+        print(repr(a0[1][0]))
+        print(repr(a0[2][1][0]))
+        print(repr(a0[3][2][1][0]))
+        print(repr(a0[3][2][1][:2]))
+        print('== Slicing ==')
+        print(repr(a0[1:3]))
+        print(repr(a0[1][1:3]))
+        print('a0.ref(): {}'.format(a0.ref()))
+
+        print('= intbv signed =====')
+        a1 = Array((4, 3, 2), intbv(0, min=-128, max=128))
+        print(a1)
+        print(repr(a1))
+        print('a1.ref(): {}'.format(a1.ref()))
+
+        print('= initialised intbv =====')
+        ll = [
+            [[1 + i + j * 2 + k * 3 * 2 for i in range(2)] for j in range(3)] for k in range(4)]
+        print(ll)
+        b = Array(ll, intbv(0)[8:])
+        print(b)
+        print(repr(b))
+
+        print('= bool =====')
+        b = Array((3, 3), bool(0))
+        print(repr(b))
+
+        print('= initialised bool =====')
+        bl = [[random.randint(0, 1) for _ in range(2)] for __ in range(4)]
+        print(bl)
+        b1 = Array(bl, bool(0))
+        print(repr(b1))
+
+    main()

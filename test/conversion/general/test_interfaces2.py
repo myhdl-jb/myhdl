@@ -62,7 +62,7 @@ def m_test_intf(clock,reset,a,b,c):
 
 
 def name_conflict_after_replace(clock, reset, a, a_x):
-    a_x_0 = [Signal(intbv(0)[len(a_x):]) for i in range(8)]
+    a_x_0 = [Signal(intbv(i)[len(a_x):]) for i in range(8)]
 
     @always_seq(clock.posedge, reset=reset)
     def logic():
@@ -77,8 +77,9 @@ def test_name_conflict_after_replace():
     clock = Signal(False)
     reset = ResetSignal(0, active=0, async=False)
     a = Intf()
-    a_x = Signal(intbv(0)[len(a.x):])
-    assert conversion.analyze(name_conflict_after_replace, clock, reset, a, a_x) == 0
+    b = Signal(intbv(0)[len(a.x):])
+#     toVHDL(name_conflict_after_replace, clock, reset, a, b)
+    assert conversion.analyze(name_conflict_after_replace, clock, reset, a, b) == 0
 
 
 def c_testbench():
@@ -122,6 +123,6 @@ def test_name_conflicts_verify():
     assert verify(c_testbench) == 0
 
 if __name__ == '__main__':
-    verify.simulator = analyze.simulator = sys.argv[1]
+#     verify.simulator = analyze.simulator = sys.argv[1]
     Simulation(c_testbench()).run()
     print(verify(c_testbench))

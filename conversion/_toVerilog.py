@@ -120,7 +120,7 @@ class _ToVerilogConvertor(object):
     def __call__(self, func, *args, **kwargs):
         global _converting
         if _converting:
-            return func(*args, **kwargs) # skip
+            return func(*args, **kwargs)  # skip
         else:
             # clean start
             sys.setprofile(None)
@@ -131,7 +131,7 @@ class _ToVerilogConvertor(object):
             raise ToVerilogError(_error.FirstArgType, "got %s" % type(func))
 
         assert self.standard in ['1995', '2001', '2005', 'SV2005', 'SV2009', 'SV2012']
-        
+
         _converting = 1
         if self.name is None:
             name = func.__name__
@@ -261,17 +261,17 @@ def _writeModuleHeader(f, intf, doc):
                     if not isinstance(s, _TristateSignal):
                         warnings.warn("%s: %s" % (_error.OutputPortRead, portname),
                                       category=ToVerilogWarning
-                                      )    
+                                      )
             else:
                 if not s._read:
                     warnings.warn("%s: %s" % (_error.UnusedPort, portname),
                                   category=ToVerilogWarning
-                                  )    
-                
+                                  )
+
     if toVerilog.standard >= 'SV2005':
         # new style declarations
         print("module %s (" % intf.name, file=f)
-        for i,portname in enumerate( intf.argnames ):
+        for i, portname in enumerate(intf.argnames):
             s = intf.argdict[portname]
             if isinstance(s, StructType):
                 pass
@@ -333,10 +333,10 @@ def _writeModuleHeader(f, intf, doc):
         print(file=f)
 
 
-def inferattrs( m, mem):
+def inferattrs(m, mem):
     if isinstance(mem, StructType):
 #         print( mem )
-        refs = vars( mem )
+        refs = vars(mem)
         for k in refs:
             s = refs[k]
             if isinstance(s, _Signal):
@@ -348,11 +348,11 @@ def inferattrs( m, mem):
                 # it may be another StructType
                 # or an Array
                 pass
-            
-    
+
+
     elif isinstance(mem[0], list):
         for mmm in mem:
-            inferattrs(m, mmm )
+            inferattrs(m, mmm)
     else:
         # lowest (= last) level of m1D
         for s in mem:
@@ -361,9 +361,9 @@ def inferattrs( m, mem):
                     m._driven = s._driven
             if not m._read and s._read:
                 m._read = s._read
-             
 
-def sortalign( cl, sort = False):
+
+def sortalign(cl, sort=False):
     # a dummy function for now
     return cl
 
@@ -373,9 +373,9 @@ def _writeConstants(f, memlist):
     for m in memlist:
         if not m._used:
             continue
-        
+
         # infer attributes for the case of named signals in a list
-        inferattrs( m, m.mem)
+        inferattrs(m, m.mem)
 
         if m._driven or not m._read:
             continue
@@ -385,24 +385,24 @@ def _writeConstants(f, memlist):
             p = _getSignString(m.elObj)
             k = 'const logic'
 #             print( k, p, r )
-            line = "{} {}".format( k,  p)
+            line = "{} {}".format(k, p)
             for s in m._sizes:
                 line += '[0:{}-1]'.format(s)
-            line =  '{} {} {} = ' .format(line, r, m.name)
+            line = '{} {} {} = ' .format(line, r, m.name)
             # drill down into the list
-            cl.append( "    {} \'{{ {} }};\n" .format(line, expandconstant( m.mem )))
+            cl.append("    {} \'{{ {} }};\n" .format(line, expandconstant(m.mem)))
         else:
             raise ValueError("Verilog has no array constants, switch to 'SV2005'")
 
-    for l in sortalign( cl, sort = True ):
-        f.write( l )        
+    for l in sortalign(cl, sort=True):
+        f.write(l)
     f.write("\n")
 
-def expandconstant( c ):
+def expandconstant(c):
     if isinstance(c[0], (list, Array)):
-        size = c._sizes[0] if isinstance(c, Array) else len( c )
+        size = c.shape[0] if isinstance(c, Array) else len(c)
         s = ''
-        for i in range( size ):
+        for i in range(size):
             s += '\'{ '
             s += expandconstant(c[i])
             s += ' }'
@@ -411,48 +411,48 @@ def expandconstant( c ):
         return s
     else:
         # lowest (= last) level of m1D
-        size = c._sizes[0] if isinstance(c, Array) else len( c )
+        size = c.shape[0] if isinstance(c, Array) else len(c)
         s = ''
-        for i in range( size ):
+        for i in range(size):
 #             s +=  ' "{}"'.format( bin( c[i] , c[i]._nrbits ))
 #             s += "{}'h{}".format(c[i]._nrbits, hex( c[i]) )
-            s += " {}".format(c[i] ) # using 'plain' integers
+            s += " {}".format(c[i])  # using 'plain' integers
             if i != size - 1:
                 s += ','
         return s
-    
-def expandarray( c  ):
+
+def expandarray(c):
     if isinstance(c[0], (list, Array)):
-        size = c._sizes[0] if isinstance(c, Array) else len( c )
+        size = c.shape[0] if isinstance(c, Array) else len(c)
         s = ''
-        for i in range( size ):
+        for i in range(size):
             s = ''.join((s, '\'{ ', expandarray(c[i]), ' }'))
             if i != size - 1:
-                s = ''.join((s, ',\n' ))
+                s = ''.join((s, ',\n'))
         return s
     else:
         # lowest (= last) level of m1D
         if isinstance(c, Array):
-            size = c._sizes[0]
+            size = c.shape[0]
         else:
-            size = len( c )
+            size = len(c)
         s = ''
         cnt = 0
-        for i in range( size ):
+        for i in range(size):
             if cnt < 3 :
                 cnt += 1
             else:
                 cnt = 0
             # using 'plain' integers
-            item = ' {}\'b{}{}{}'.format(c[i]._nrbits, 
+            item = ' {}\'b{}{}{}'.format(c[i]._nrbits,
                                     bin(c[i]._val, c[i]._nrbits),
                                      ', ' if i != size - 1 else '',
                                      '\n' if cnt == 0 else '')
             s = ''.join((s, item))
 
-        return s    
-    
-    
+        return s
+
+
 def _writeSigDecls(f, intf, siglist, memlist):
     constwires = []
     for s in siglist:
@@ -472,7 +472,7 @@ def _writeSigDecls(f, intf, siglist, memlist):
             if s._driven == 'reg':
                 k = 'reg ' if toVerilog.standard < 'SV20005' else 'logic'
                 if not toVerilog.no_initial_values:
-                    ini = " = %s"% int(s._val)
+                    ini = " = %s" % int(s._val)
             # the following line implements initial value assignments
             # print >> f, "%s %s%s = %s;" % (k, r, s._name, int(s._val))
             print("%s %s%s%s%s;  " % (k, p, r, s._name, ini), file=f)
@@ -513,29 +513,29 @@ def _writeSigDecls(f, intf, siglist, memlist):
         if toVerilog.standard >= 'SV2005' and toVerilog.packedarrays:
             # make packed arrays, they look much nicer ...
 #             print(m._sizes)
-            line = "{} {}".format( k,  p)
+            line = "{} {}".format(k, p)
             for s in m._sizes:
-                line = ''.join((line,'[0:{}-1]'.format(s)))
+                line = ''.join((line, '[0:{}-1]'.format(s)))
             if toVerilog.no_initial_values :
-                print( '{} {} {};' .format(line, r, m.name) , file = f)
+                print('{} {} {};' .format(line, r, m.name) , file=f)
             else:
-                print( '{} {} {} = \'{{ {} }};' .format(line, r, m.name , expandarray(m.mem)) , file = f)
-                
+                print('{} {} {} = \'{{ {} }};' .format(line, r, m.name , expandarray(m.mem)) , file=f)
+
         else:
             if m.levels > 1:
                 if toVerilog.standard == '1995' :
                     raise ValueError("Verilog 1995 only recognises 1 level")
 
-                line = "{} {}{}{}".format( k,  p, r, m.name)
+                line = "{} {}{}{}".format(k, p, r, m.name)
                 for s in m._sizes:
                     line = ''.join((line, '[0:{}-1]'.format(s)))
-                print( '{};' .format(line) , file = f)
+                print('{};' .format(line) , file=f)
             else:
-                line = "{} {}{}{}  [0:{}-1]".format( k,  p, r, m.name, m.depth)
+                line = "{} {}{}{}  [0:{}-1]".format(k, p, r, m.name, m.depth)
                 if toVerilog.no_initial_values :
-                    print( '{};' .format(line) , file = f)
+                    print('{};' .format(line) , file=f)
                 else:
-                    print( '{} = \'{{ {} }};' .format(line , expandarray(m.mem)) , file = f)
+                    print('{} = \'{{ {} }};' .format(line , expandarray(m.mem)) , file=f)
 #                 print("%s %s%s%s [0:%s-1];" % (k, p, r, m.name, m.depth), file=f)
     print(file=f)
     for s in constwires:
@@ -600,12 +600,12 @@ def _getRangeString(s):
             return ''
         elif s._nrbits is not None:
             nrbits = s._nrbits
-            return "[%s:0] " % (nrbits-1)
+            return "[%s:0] " % (nrbits - 1)
         else:
             raise AssertionError
     elif isinstance(s, intbv):
         if s._nrbits is not None:
-            return "[%s:0] " % (s._nrbits-1)
+            return "[%s:0] " % (s._nrbits - 1)
         else:
             raise AssertionError
 
@@ -634,7 +634,7 @@ def _convertGens(genlist, vfile):
             Visitor = _ConvertAlwaysDecoVisitor
         elif tree.kind == _kind.ALWAYS_SEQ:
             Visitor = _ConvertAlwaysSeqVisitor
-        else: # ALWAYS_COMB
+        else:  # ALWAYS_COMB
             Visitor = _ConvertAlwaysCombVisitor
         v = Visitor(tree, blockBuf, funcBuf)
         v.visit(tree)
@@ -692,7 +692,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
     def raiseError(self, node, kind, msg=""):
         lineno = self.getLineNo(node)
         info = "in file %s, line %s:\n    " % \
-              (self.tree.sourcefile, self.tree.lineoffset+lineno)
+              (self.tree.sourcefile, self.tree.lineoffset + lineno)
         raise ToVerilogError(kind, msg, info)
 
     def write(self, arg):
@@ -721,15 +721,15 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         p = abs(n)
         size = ''
         num = str(p).rstrip('L')
-        if radix == "hex" or p >= 2**30:
+        if radix == "hex" or p >= 2 ** 30:
             radix = "'h"
             num = hex(p)[2:].rstrip('L')
-        if p >= 2**30:
-            size = int(math.ceil(math.log(p+1,2))) + 1  # sign bit!
+        if p >= 2 ** 30:
+            size = int(math.ceil(math.log(p + 1, 2))) + 1  # sign bit!
 #            if not radix:
 #                radix = "'d"
         r = "%s%s%s" % (size, radix, num)
-        if n < 0: # add brackets and sign on negative numbers
+        if n < 0:  # add brackets and sign on negative numbers
             r = "(-%s)" % r
         return r
 
@@ -747,7 +747,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         elif isinstance(obj, Array):
             self.write("reg [%s:0] %s" % (obj.element._nrbits - 1, name))
             for size in  obj._sizes:
-                self.write( " [0:%s-1]" % size ) 
+                self.write(" [0:%s-1]" % size)
         elif hasattr(obj, '_nrbits'):
             s = ""
             if isinstance(obj, (intbv, _Signal)):
@@ -798,7 +798,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.write(", ")
             self.visit(node.right)
         else:
-            if isinstance(node.op,  ast.RShift):
+            if isinstance(node.op, ast.RShift):
                 # Additional cast to signed of the full expression
                 # this is apparently required by cver - not sure if it
                 # is actually required by standard Verilog.
@@ -906,7 +906,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.indent()
             for i, n in enumerate(rom):
                 self.writeline()
-                if i == len(rom)-1:
+                if i == len(rom) - 1:
                     self.write("default: ")
                 else:
                     self.write("%s: " % i)
@@ -917,7 +917,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 else:
                     self.write(' = ')
                 s = self.IntRepr(n)
-                self.write("%s;" %s)
+                self.write("%s;" % s)
             self.dedent()
             self.writeline()
             self.write("endcase")
@@ -987,7 +987,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         elif f in (intbv, modbv):
             self.visit(node.args[0])
             return
-        elif f == intbv.signed: # note equality comparison
+        elif f == intbv.signed:  # note equality comparison
             # comes from a getattr
             opening, closing = '', ''
             if not fn.value.signed:
@@ -1093,10 +1093,10 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 start, stop, step = args[0], args[1], None
             else:
                 start, stop, step = args
-        else: # downrange
+        else:  # downrange
             cmp = '>='
             op = '-'
-            oneoff ='-1'
+            oneoff = '-1'
             if len(args) == 1:
                 start, stop, step = args[0], None, None
             elif len(args) == 2:
@@ -1221,7 +1221,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.visit(stmt)
 
     def visit_ListComp(self, node):
-        pass # do nothing
+        pass  # do nothing
 
     def visit_NameConstant(self, node):
         self.write(nameconstant_map[node.obj])
@@ -1290,7 +1290,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 argnr += 1
                 obj = a.obj
                 fs = "%0d"
-                self.context =_context.PRINT
+                self.context = _context.PRINT
                 if isinstance(obj, str):
                     self.write('$write(')
                     self.visit(a)
@@ -1357,7 +1357,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             # special shortcut case for [:] slice
             if lower is None and upper is None:
                 return
-            
+
             self.write("[")
             if lower is None:
                 self.write("0")
@@ -1365,13 +1365,13 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 self.visit(lower)
 
             self.write(":")
-              
+
             if upper is None:
-                self.write("{}". format( node.obj._sizes[0] ))    
+                self.write("{}". format(node.obj.shape[0]))
             else:
                 self.visit(upper)
 
-           
+
             self.write("-1]")
             if addSignBit:
                 self.write("})")
@@ -1759,7 +1759,7 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
         self.generic_visit(node)
         f = self.getObj(node.func)
         node.signed = False
-        ### suprize: identity comparison on unbound methods doesn't work in python 2.5??
+        # ## suprize: identity comparison on unbound methods doesn't work in python 2.5??
         if f == intbv.signed:
             node.signed = True
         elif hasattr(node, 'tree'):
@@ -1769,7 +1769,7 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
 
     def visit_Compare(self, node):
         node.signed = False
-        #for n in ast.iter_child_nodes(node):
+        # for n in ast.iter_child_nodes(node):
         for n in [node.left] + node.comparators:
             self.visit(n)
             if n.signed:

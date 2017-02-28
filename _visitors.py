@@ -6,6 +6,7 @@ from myhdl._structured import Array, StructType
 
 
 class _SigNameVisitor(ast.NodeVisitor):
+
     def __init__(self, symdict):
         self.toplevel = 1
         self.symdict = symdict
@@ -18,8 +19,9 @@ class _SigNameVisitor(ast.NodeVisitor):
         self.context = 'input'
 
     def visit_Module(self, node):
-        inputs = self.results['input']
-        outputs = self.results['output']
+        #         inputs = self.results['input']
+        #         outputs = self.results['output']
+        #         print('visit_Module', node, inputs, outputs)
         for n in node.body:
             self.visit(n)
 
@@ -41,13 +43,15 @@ class _SigNameVisitor(ast.NodeVisitor):
     def visit_Name(self, node):
         id = node.id
         if id not in self.symdict:
+            #             print('visit_Name, lost {}'.format(id))
             return
         s = self.symdict[id]
         if isinstance(s, (_Signal, intbv)) or _isListOfSigs(s) or isinstance(s, Array):
+            #             print(repr(s), self.context)
             if self.context in ('input', 'output', 'inout'):
                 self.results[self.context].add(id)
             else:
-                print(self.context)
+                #                 print(self.context)
                 raise AssertionError("bug in always_comb")
 
     def visit_Assign(self, node):
@@ -81,10 +85,10 @@ class _SigNameVisitor(ast.NodeVisitor):
         self.visit(node.value)
 
     def visit_ClassDef(self, node):
-        pass # skip
+        pass  # skip
 
     def visit_Exec(self, node):
-        pass # skip
+        pass  # skip
 
     def visit_Print(self, node):
-        pass # skip
+        pass  # skip

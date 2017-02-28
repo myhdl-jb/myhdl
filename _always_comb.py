@@ -12,7 +12,6 @@
 #  WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 #  Lesser General Public License for more details.
-
 #  You should have received a copy of the GNU Lesser General Public
 #  License along with this library; if not, write to the Free Software
 #  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
@@ -28,6 +27,7 @@ import ast
 
 from myhdl import AlwaysCombError
 from myhdl._Signal import _Signal, _isListOfSigs
+from myhdl._intbv import intbv
 from myhdl._util import _isGenFunc, _dedent
 from myhdl._Waiter import _Waiter, _SignalWaiter, _SignalTupleWaiter
 from myhdl._instance import _Instantiator
@@ -45,10 +45,10 @@ _error.NrOfArgs = "always_comb argument should be a function without arguments"
 _error.Scope = "always_comb argument should be a local function"
 _error.SignalAsInout = "signal (%s) used as inout in always_comb function argument"
 _error.EmbeddedFunction = "embedded functions in always_comb function argument not supported"
-_error.EmptySensitivityList= "sensitivity list is empty"
+_error.EmptySensitivityList = "sensitivity list is empty"
 
 def always_comb(func):
-    if not isinstance( func, FunctionType):
+    if not isinstance(func, FunctionType):
         raise AlwaysCombError(_error.ArgType)
     if _isGenFunc(func):
         raise AlwaysCombError(_error.ArgType)
@@ -60,47 +60,51 @@ def always_comb(func):
 
 # class _AlwaysComb(_Instantiator):
 class _AlwaysComb(_Always):
-    
+
     def __init__(self, func):
-      
-        def senslistexpand( senslist, reg ):
-            if isinstance(reg, StructType):
-                refs = vars( reg )
+
+        def senslistexpand(senslist, reg):
+            if isinstance(reg, _Signal):
+                senslist.append(reg)
+            elif isinstance(reg, StructType):
+                refs = vars(reg)
                 for k in refs:
                     if isinstance(refs[k], _Signal):
-                        senslist.append( refs[k] )
+                        senslist.append(refs[k])
                     elif isinstance(refs[k], (list, Array)):
                         senslistexpand(senslist, refs[k])
+                    elif isinstance(refs[k], StructType):
+                        senslistexpand(senslist, refs[k])
                     else:
-#                         print( 'senslistexpand passing {}?'.format(k))
+#                         print('senslistexpand passing {}?'.format(k))
                         pass
-            else:
+            elif isinstance(reg, (list, Array)):
                 if isinstance(reg[0], (list, Array)):
                     for r in reg:
-                        senslistexpand( senslist, r )
+                        senslistexpand(senslist, r)
                 else:
-                    # lowest (= last) level of m1D
                     if isinstance(reg[0], StructType):
                         for rr in reg:
-                            senslistexpand( senslist, rr)
-                    else:
-                        # list or Array
-                        if isinstance(reg, Array):
-                            senslist.extend(reg._array)
-                        else:
-                            senslist.extend(reg)
+                            senslistexpand(senslist, rr)
+                    elif isinstance(reg[0], _Signal):
+                        senslist.extend(reg)
+#                     elif isinstance(reg, Array):
+#                         senslist.extend(reg._array)
+#                     elif isinstance(reg, list):
+#                         senslist.extend(reg)
 
 #         self.func = func
 #         self.symdict = symdict
         senslist = []
         super(_AlwaysComb, self).__init__(func, senslist)
-#         print(senslist)
+#         print('_AlwaysComb', senslist)
         s = inspect.getsource(func)
         s = _dedent(s)
         tree = ast.parse(s)
-#         print( ast.dump(tree) )
+#         print(ast.dump(tree))
         v = _AttrRefTransformer(self)
         v.visit(tree)
+#         print( ast.dump(tree) )
         v = _SigNameVisitor(self.symdict)
         v.visit(tree)
         self.inputs = v.results['input']
@@ -113,26 +117,37 @@ class _AlwaysComb(_Always):
 
         if v.results['embedded_func']:
             raise AlwaysCombError(_error.EmbeddedFunction)
-
+#         print(self.inputs)
+#         print('2', self.senslist)
         for n in self.inputs:
             s = self.symdict[n]
-#             print(n, s, isinstance(s, StructType), isinstance( s, (list, Array)))
-            if isinstance(s, _Signal):
-                senslist.append(s)
-            elif isinstance( s, (list, Array)):
-#                 print(repr(s))
-                # list or Array of sigs
-                senslistexpand( senslist, s)
-            elif isinstance(s, StructType):
-                senslistexpand( senslist, s)
-            elif _isListOfSigs(s):
-                senslist.extend(s)
-            else :
-#                 print('_always_comb', n)
-                pass
+#             print(n,s)
+#             print(n, s, isinstance(s, StructType), isinstance(s, (list, Array)))
+            senslistexpand(senslist, s)
+#             if isinstance(s, _Signal):
+#                 senslist.append(s)
+#             elif isinstance(s, list):
+# #                 print(repr(s))
+#                 # list or Array of sigs
+#                 senslistexpand(senslist, s)
+#             elif isinstance(s, Array):
+#                 # Array of sigs
+#                 if not isinstance(s.element, intbv):
+#                     senslistexpand(senslist, s)
+#             elif isinstance(s, StructType):
+#                 senslistexpand(senslist, s)
+#             elif _isListOfSigs(s):
+#                 senslist.extend(s)
+#             else :
+# #                 print('_always_comb', n)
+#                 pass
+#         print('3', self.senslist)
         self.senslist = tuple(senslist)
-#         print(senslist)
+#         print('4', self.senslist)
         self.gen = self.genfunc()
+#         for item in self.senslist:
+#             print(item._name, repr(item))
+#         print()
         if len(self.senslist) == 0:
             raise AlwaysCombError(_error.EmptySensitivityList)
 

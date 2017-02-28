@@ -27,11 +27,12 @@ from __future__ import print_function
 import sys
 import math
 import os
+# import re
 
 import inspect
 from datetime import datetime
-#import compiler
-#from compiler import ast as astNode
+# import compiler
+# from compiler import ast as astNode
 import ast
 from types import GeneratorType
 import warnings
@@ -45,29 +46,55 @@ from myhdl._extractHierarchy import (_HierExtr, _isMem, _getMemInfo,
                                      _UserVhdlCode, _userCodeMap)
 
 from myhdl._instance import _Instantiator
-from myhdl.conversion._misc import (_error,_kind,_context,
+from myhdl.conversion._misc import (_error, _kind, _context,
                                     _ConversionMixin, _Label, _genUniqueSuffix, _isConstant)
 from myhdl.conversion._analyze import (_analyzeSigs, _analyzeGens, _analyzeTopFunc,
                                        _Ram, _Rom, _enumTypeSet)
-from myhdl._Signal import _Signal,_WaiterList
+from myhdl._Signal import _Signal, _WaiterList
 from myhdl.conversion._toVHDLPackage import _package
 # from myhdl._util import  _flatten
 from myhdl._compat import integer_types, class_types, StringIO
-from myhdl._ShadowSignal import _TristateSignal, _TristateDriver
+from myhdl._ShadowSignal import _TristateSignal, _TristateDriver, _ShadowSignal
 from myhdl._misc import m1Dinfo
 from myhdl._structured import Array, StructType
+from myhdl._ShadowSignal import ConcatSignal
 
 
-_version = myhdl.__version__.replace('.','')
-_shortversion = _version.replace('dev','')
+from myhdl.tracejb import Tracing
+
+trace = Tracing(False, source='_toVHDL')
+
+# # a global flag to selectively trace
+# trace = False
+# tracestates = []
+#
+# def tracepush(newstate):
+#     global trace
+#     tracestates.append(trace)
+#     trace = newstate
+#
+#
+# def tracepop():
+#     global trace
+#     trace = tracestates.pop()
+#
+#
+# def traceprint(*args):
+#     if trace:
+#         trace.print(*args)
+
+_version = myhdl.__version__.replace('.', '')
+_shortversion = _version.replace('dev', '')
 _converting = 0
 _profileFunc = None
 _enumPortTypeSet = set()
+
 
 def _checkArgs(arglist):
     for arg in arglist:
         if not isinstance(arg, (GeneratorType, _Instantiator, _UserVhdlCode)):
             raise ToVHDLError(_error.ArgType, arg)
+
 
 def _flatten(*args):
     arglist = []
@@ -81,12 +108,15 @@ def _flatten(*args):
             arglist.append(arg)
     return arglist
 
+
 def _makeDoc(doc, indent=''):
     if doc is None:
         return ''
     doc = inspect.cleandoc(doc)
+#     print(doc)
     pre = '\n' + indent + '-- '
-    doc = '-- ' + doc
+#     doc = '-- ' + doc
+    doc = '\n' + doc
     doc = doc.replace('\n', pre)
     return doc
 
@@ -94,6 +124,7 @@ def _makeDoc(doc, indent=''):
 class _ToVHDLConvertor(object):
 
     __slots__ = ("name",
+                 "standard",
                  "directory",
                  "component_declarations",
                  "header",
@@ -107,8 +138,8 @@ class _ToVHDLConvertor(object):
                  )
 
     def __init__(self):
-#         tracejb( __name__ )
         self.name = None
+        self.standard = '2008'
         self.directory = None
         self.component_declarations = None
         self.header = ''
@@ -121,11 +152,12 @@ class _ToVHDLConvertor(object):
         self.no_initial_values = False
 
     def __call__(self, func, *args, **kwargs):
-#         tracejb('_ToVHDLConvertor call' )
         global _converting
         if _converting:
-            return func(*args, **kwargs) # skip
+            #             trace.print('executing {}'.format(func))
+            return func(*args, **kwargs)  # skip
         else:
+            #             trace.print('clean start {}'.format(func))
             # clean start
             sys.setprofile(None)
         from myhdl import _traceSignals
@@ -139,10 +171,16 @@ class _ToVHDLConvertor(object):
             name = func.__name__
         else:
             name = str(self.name)
+
+        print('Calling toVHDL for {}'.format(name))
+
         try:
             h = _HierExtr(name, func, *args, **kwargs)
         finally:
             _converting = 0
+
+#         for item in h.hierarchy:
+#             trace.print(repr(item))
 
         if self.directory is None:
             directory = ''
@@ -171,25 +209,34 @@ class _ToVHDLConvertor(object):
         arglist = _flatten(h.top)
         _checkArgs(arglist)
         genlist = _analyzeGens(arglist, h.absnames)
+#         trace.print('Analysed Generators')
+#         trace.print('genlist', genlist)
         siglist, memlist = _analyzeSigs(h.hierarchy, hdl='VHDL')
+#         trace.print('siglist', siglist)
+#         trace.print('memlist', memlist)
+#         trace.print('siglist', siglist)
+#         trace.print('memlist')
+#         for mem in memlist:
+#             trace.print(repr(mem))
+#         trace.print('Analysed Signals')
         _annotateTypes(genlist)
-        ### infer interface
+        # ## infer interface
         top_inst = h.hierarchy[0]
         intf = _analyzeTopFunc(top_inst, func, *args, **kwargs)
         intf.name = name
         # sanity checks on interface
         for portname in intf.argnames:
-            s = intf.argdict[portname]
-            if  isinstance(s, StructType):
+            port = intf.argdict[portname]
+            if isinstance(port, StructType):
                 pass
-            else :
-                if s._name is None:
+            else:
+                if port._name is None:
                     raise ToVHDLError(_error.ShadowingSignal, portname)
-#             if s._inList:
+#             if port._inList:
 #                 raise ToVHDLError(_error.PortInList, portname)
             # add enum types to port-related set
-                if isinstance(s._val, EnumItemType):
-                    obj = s._val._type
+                if isinstance(port._val, EnumItemType):
+                    obj = port._val._type
                     if obj in _enumTypeSet:
                         _enumTypeSet.remove(obj)
                         _enumPortTypeSet.add(obj)
@@ -213,12 +260,14 @@ class _ToVHDLConvertor(object):
         _writeFileHeader(vfile, vpath)
         if needPck:
             _writeCustomPackage(vfile, intf)
-        _writeModuleHeader(vfile, intf, needPck, lib, arch, useClauses, doc, stdLogicPorts)
+        _writeModuleHeader(vfile, intf, needPck, lib, arch,
+                           useClauses, doc, stdLogicPorts, siglist, self.standard)
         _writeTypeDefs(vfile, memlist)
         _writeFuncDecls(vfile)
         _writeConstants(vfile, memlist)
         _writeSigDecls(vfile, intf, siglist, memlist)
         _writeCompDecls(vfile, compDecls)
+#         trace.print('genlist', genlist)
         _convertGens(genlist, siglist, memlist, vfile)
         _writeModuleFooter(vfile, arch)
 
@@ -226,11 +275,11 @@ class _ToVHDLConvertor(object):
         # tbfile.close()
 
         # postedit the .vhd file
-        dummyprefix = name + '_'
-#         print(dummyprefix)
+        dummyprefixes = [name + '_', name.lower() + '_']
+#         trace.print(dummyprefixes)
 #         if len( suppressedWarnings ) > 0:
-        fi = open( tpath, 'r')
-        fo = open( vpath, 'w')
+        fi = open(tpath, 'r')
+        fo = open(vpath, 'w')
         # edit ...
         # read the temporary VHDL file
         filines = fi.read().split('\n')
@@ -240,9 +289,13 @@ class _ToVHDLConvertor(object):
             for sw in suppressedWarnings:
                 if sw._name in line:
                     skip = True
-                    break;
+                    break
             if not skip:
-                fo.write( line.replace(dummyprefix, '') + '\n' )
+                # ideally should do this while giving the names
+                #                 line = re.sub('\b{}\{}'.format(dummyprefixes[0], dummyprefixes[1]), '', line)
+                for dp in dummyprefixes:
+                    line = line.replace(dp, '')
+                fo.write(line + '\n')
 
         # selectively write the lines to the output
 
@@ -257,11 +310,9 @@ class _ToVHDLConvertor(object):
         ### clean-up properly ###
         self._cleanup(siglist)
 
-#         tracejbdedent()
         return h.top
 
     def _cleanup(self, siglist):
-#         tracejb( "_ToVHDLConvertor: _cleanup" )
         # clean up signal names
         for sig in siglist:
             sig._clear()
@@ -277,46 +328,39 @@ class _ToVHDLConvertor(object):
         self.no_myhdl_package = False
         self.architecture = "MyHDL"
         self.std_logic_ports = False
-#         tracejbdedent()
-
 
     def _convert_filter(self, h, intf, siglist, memlist, genlist):
-#         tracejb( "_ToVHDLConvertor: _convert_filter" )
         # intended to be a entry point for other uses:
         #  code checking, optimizations, etc
-#         logjbinspect(h, 'h', True)
-#         logjbinspect(intf, 'intf', True)
-#         logjbinspect(siglist, 'siglist', True)
-#         logjbinspect(memlist, 'memlist', True)
-#         logjbinspect(genlist, 'genlist', True)
-#         tracejbdedent()
         pass
 
-
+# expose as global object
 toVHDL = _ToVHDLConvertor()
 
 myhdl_header = """\
 -- File: $filename
 -- Generated by MyHDL $version
+-- BEWARE: peppered with Array, StructType,
+--         advanced ShadowSignal functionality, and more
+--         by Josy Boelen (josyb)
+--
 -- Date: $date
 """
 
+
 def _writeFileHeader(f, fn):
-#     tracejb("_ToVHDLConvertor: " + '_writeFileHeader')
     mvars = dict(filename=fn,
-                version=myhdl.__version__,
-                date=datetime.today().ctime()
-                )
+                 version=myhdl.__version__,
+                 date=datetime.today().ctime()
+                 )
     if toVHDL.header:
         print(string.Template(toVHDL.header).substitute(mvars), file=f)
     if not toVHDL.no_myhdl_header:
         print(string.Template(myhdl_header).substitute(mvars), file=f)
     print(file=f)
-#     tracejbdedent()
 
 
 def _writeCustomPackage(f, intf):
-#     tracejb("_ToVHDLConvertor: " + '_writeCustomPackage')
     print(file=f)
     print("package pck_%s is" % intf.name, file=f)
     print(file=f)
@@ -332,12 +376,14 @@ def _writeCustomPackage(f, intf):
 
 portConversions = []
 suppressedWarnings = []
+constantlist = []
 
-def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPorts):
+
+def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPorts, siglist, standard):
     print("library IEEE;", file=f)
-    print("    use IEEE.std_logic_1164.all;", file=f)
-    print("    use IEEE.numeric_std.all;", file=f)
-    print("    use std.textio.all;", file=f)
+    print("\tuse IEEE.std_logic_1164.all;", file=f)
+    print("\tuse IEEE.numeric_std.all;", file=f)
+    print("\tuse std.textio.all;", file=f)
     print(file=f)
     if lib != "work":
         print("library %s;" % lib, file=f)
@@ -345,232 +391,292 @@ def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPor
         f.write(useClauses)
         f.write("\n")
     else:
-        print("    use %s.pck_myhdl_%s.all;" % (lib, _shortversion), file=f)
+        print("\tuse %s.pck_myhdl_%s.all;" % (lib, _shortversion), file=f)
     print(file=f)
     if needPck:
-        print("    use %s.pck_%s.all;" % (lib, intf.name), file=f)
+        print("\tuse %s.pck_%s.all;" % (lib, intf.name), file=f)
         print(file=f)
     print("entity %s is" % intf.name, file=f)
     del portConversions[:]
+    del suppressedWarnings[:]
+    del constantlist[:]
     pl = []
     if intf.argnames:
-        f.write("    port (")
-        c = ''
+        f.write("\tport (")
         for portname in intf.argnames:
-            s = intf.argdict[portname]
-            if isinstance(s, StructType):
+            port = intf.argdict[portname]
+            if isinstance(port, (StructType, Array)):
                 # expand the structure
                 # and add assignments
                 # taking care of unsigned <> std_logic_vector conversions
-                expandStructType(c, stdLogicPorts, pl, portname, s)
+                #                 expandStructType(c, stdLogicPorts, pl, portname, port)
+                expandStructuredPort(stdLogicPorts, pl, portname, port)
             else:
-                pl.append("%s" % c)
-                c = ';'
+                # must be a Signal
                 # change name to convert to std_logic, or
                 # make sure signal name is equal to its port name
                 convertPort = False
-                if stdLogicPorts and s._type is intbv:
-                    s._name = portname + "_num"
+                if stdLogicPorts and port._type is intbv:
+                    port._name = portname + "_num"
                     convertPort = True
-                    s._used = True  # 03-01-2016 expanding a StructType obj does miss out on some port signals
-                    for sl in s._slicesigs:
-                        sl._setName( 'VHDL' )
+                    # 03-01-2016 expanding a StructType obj does miss out on
+                    # some port signals
+                    port._used = True
+                    for sl in port._slicesigs:
+                        sl._setName('VHDL')
                 else:
-                    s._name = portname
+                    port._name = portname
 
-                r = _getRangeString(s)
-                pt = st = _getTypeString(s)
+                r = _getRangeString(port)
+                pt = st = _getTypeString(port)
                 if convertPort:
                     pt = "std_logic_vector"
-                if s._driven:
-                    if s._read :
-                        pl.append("\n        %s : inout %s%s" % (portname, pt, r))
-                        if not isinstance(s, _TristateSignal):
-                            warnings.warn("%s: %s" % (_error.OutputPortRead, portname),
-                                          category=ToVHDLWarning
-                                          )
+                    if port.driven:
+                        pl.append("\n\t\t%s : out %s%s;" % (portname, pt, r))
+                        portConversions.append(
+                            "\t%s <= %s(%s);" % (portname, pt, port._name))
+                        # mark corresponding signal as read
+                        for s in siglist:
+                            if s._name == port._name:
+                                s._read = True
+                                break
                     else:
-                        pl.append("\n        %s : out %s%s" % (portname, pt, r))
-                    if convertPort:
-                        portConversions.append("    %s <= %s(%s);" % (portname, pt, s._name))
-                        s._read = True
-                else:
-                    if not s._read and not s._suppresswarning:
-                        warnings.warn("%s: %s" % (_error.UnusedPort, portname),
-                                      category=ToVHDLWarning
-                                      )
-    
-                    pl.append("\n        %s : in %s%s" % (portname, pt, r))
-                    if convertPort:
-                        portConversions.append("    %s <= %s(%s);" % (s._name, st, portname))
-                        s._driven = True
+                        if not port._read and not port._suppresswarning:
+                            warnings.warn(
+                                "%s: %s" % (_error.UnusedPort, portname), category=ToVHDLWarning)
 
-        for l in sortalign( pl , sort = False, port = True):
-            f.write( l )
-        f.write("\n        );\n")
-    print("end entity %s;" % intf.name, file=f)
+                        pl.append("\n\t\t%s : in %s%s;" % (portname, pt, r))
+                        if convertPort:
+                            portConversions.append(
+                                "\t%s <= %s(%s);" % (port._name, st, portname))
+                            port.driven = True
+                else:
+                    if port._driven:
+                        if port._read:
+                            #                             if standard == '2008':
+                            #                                 pl.append("\n        %s : out %s%s;" %
+                            #                                           (portname, pt, r))
+                            #                             else:
+                            pl.append("\n\t\t%s : inout %s%s;" %
+                                      (portname, pt, r))
+                            if not isinstance(port, _TristateSignal):
+                                warnings.warn(
+                                    "%s: %s" % (_error.OutputPortRead, portname), category=ToVHDLWarning)
+                        else:
+                            pl.append("\n\t\t%s : out %s%s;" %
+                                      (portname, pt, r))
+                        if convertPort:
+                            portConversions.append(
+                                "\t%s <= %s(%s);" % (portname, pt, port._name))
+                            port._read = True
+                    else:
+                        if not port._read and not port._suppresswarning:
+                            warnings.warn(
+                                "%s: %s" % (_error.UnusedPort, portname), category=ToVHDLWarning)
+
+                        pl.append("\n\t\t%s : in %s%s;" % (portname, pt, r))
+                        if convertPort:
+                            portConversions.append(
+                                "\t%s <= %s(%s);" % (port._name, st, portname))
+                            port._driven = True
+
+        sl = sortalign(pl, sort=False, port=True)
+        fsl = ''.join((sl))
+        f.write(fsl[:-1])
+        f.write("\n\t\t);\n")
+    print("end entity %s;\n" % intf.name, file=f)
     print(doc, file=f)
     print(file=f)
     print("architecture %s of %s is" % (arch, intf.name), file=f)
     print(file=f)
 
-expandlevel = 2
-def expandStructType(c, stdLogicPorts, pl, name, obj):
-    for attr, attrobj in vars(obj).items():
-        if isinstance(attrobj, _Signal):
-            pl.append("%s" % c)
-            c = ';'
-            convertPort = False
-            portname = ''.join((name, attr))
-            r = _getRangeString(attrobj)
-            pt = st = _getTypeString(attrobj)
-            if stdLogicPorts:
-                convertPort = True
-                if isinstance(attrobj._val, intbv):
-                    pt = 'std_logic_vector'
-            if attrobj._driven:
-                if attrobj.read:
-                    pl.append("\n        %s : inout %s%s" % (portname, pt, r))
-                    warnings.warn("%s: %s" % (_error.OutputPortRead, portname),
-                                  category=ToVHDLWarning
-                                  )
-                else:
-                    pl.append("\n        %s : out %s%s" % (portname, pt, r))
-                if convertPort:
-                    if isinstance(attrobj._val, intbv):
-                        portConversions.append("    %s <= %s(%s);" % (portname, pt, attrobj._name))
-                    else:
-                        portConversions.append("    %s <= %s;" % (portname, attrobj._name))
 
-                    attrobj._read = True
-            elif attrobj.read:
-                pl.append("\n        %s : in %s%s" % (portname, pt, r))
-                if convertPort:
-                    if isinstance(attrobj._val, intbv):
-                        portConversions.append("    %s <= %s(%s);" % (attrobj._name, st, portname))
-                    else:
-                        portConversions.append("    %s <= %s;" % (attrobj._name, portname))
-                    attrobj._driven = True
+def addStructuredPortEntry(stdLogicPorts, pl, portname, portsig):
+    r = _getRangeString(portsig)
+    pt = st = _getTypeString(portsig)
+    if stdLogicPorts:
+        if isinstance(portsig._val, intbv):
+            pt = 'std_logic_vector'
+    if portsig._driven:
+        if portsig.read:
+            pl.append("\n\t\t%s : inout %s%s;" % (portname, pt, r))
+            warnings.warn(
+                "%s: %s" % (_error.OutputPortRead, portname), category=ToVHDLWarning)
+        else:
+            pl.append("\n\t\t%s : out %s%s;" % (portname, pt, r))
+        if isinstance(portsig._val, intbv):
+            portConversions.append(
+                "\t%s <= %s(%s);" % (portname, pt, portsig._name))
+        else:
+            portConversions.append("\t%s <= %s;" % (portname, portsig._name))
+        portsig._read = True
+    elif portsig.read:
+        pl.append("\n\t\t%s : in %s%s;" % (portname, pt, r))
+        if isinstance(portsig._val, intbv):
+            portConversions.append(
+                "\t%s <= %s(%s);" % (portsig._name, st, portname))
+        else:
+            portConversions.append("\t%s <= %s;" % (portsig._name, portname))
+        portsig._driven = True
+    else:
+        # silently discard neither driven nor read members
+        pass
+
+
+def expandStructuredPort(stdLogicPorts, pl, name, obj):
+    #     print( 'expanding', name, repr(obj))
+    if isinstance(obj, StructType):
+        for attr, attrobj in vars(obj).items():
+            if isinstance(attrobj, _Signal):
+                addStructuredPortEntry(
+                    stdLogicPorts, pl, ''.join((name, attr)), attrobj)
+            elif isinstance(attrobj, StructType):
+                trace.print('Expanding', name, attr)
+                expandStructuredPort(stdLogicPorts, pl, name + attr, attrobj)
+            # else EnumItemType, int, str, ...
+    elif isinstance(obj, Array):
+        name += '_'
+        if isinstance(obj[0], Array):
+            # go down
+            for i in len(obj):
+                expandStructuredPort(stdLogicPorts, pl, name + str(i), obj[i])
+        else:
+            # lowest level of array
+            if isinstance(obj.element, StructType):
+                for i in len(obj):
+                    expandStructuredPort(
+                        stdLogicPorts, pl, name + str(i), obj[i])
             else:
-                # silently discard neither driven nor read members
-                pass
-
-        elif isinstance(attrobj, myhdl.EnumType):
-            pass
-        elif isinstance(attrobj, StructType):
-            if expandlevel > 1:
-                expandStructType(c, stdLogicPorts, pl, name + attr, attrobj)
-            else :
-                pass
+                # Signal
+                for i in len(obj):
+                    addStructuredPortEntry(
+                        stdLogicPorts, pl, ''.join((name, str(i))), obj[i])
+        # not yet
+        raise ToVHDLError("Don't do Arrays", obj)
+        # need to add a type declaration to a package
 
 
 def _writeFuncDecls(f):
     return
 
+
 def _writeConstants(f, memlist):
     f.write("\n")
     cl = []
-   
+
     for m in memlist:
         if not m._used:
             continue
-        if m._driven or not m._read:
+        if m.driven or not m._read:
             continue
+        # not driven, but _read
         # drill down into the list
-        cl.append( "    constant {} : {} := ( {} );\n" .format(m.name, m._typedef, expandconstant( m.mem )))
-        
-    for l in sortalign( cl, sort = True ):
-        f.write( l )        
+        cl.append("    constant {} : {} := ( {} );\n" .format(
+            m.name, m._typedef, expandconstant(m.mem)))
+        constantlist.append(m.name)
+    for l in sortalign(cl, sort=True):
+        f.write(l)
     f.write("\n")
 
-def expandconstant( c  ):
+
+def expandconstant(c):
     if isinstance(c, StructType):
         pass
     elif isinstance(c[0], (list, Array)):
-        size = c._sizes[0] if isinstance(c, Array) else len( c )
+        size = c.shape[0] if isinstance(c, Array) else len(c)
         s = ''
-        for i in range( size ):
+        for i in range(size):
             s = ''.join((s, '(', expandconstant(c[i]), ')'))
             if i != size - 1:
-                s = ''.join((s, ',\n' ))
+                s = ''.join((s, ',\n'))
         return s
     else:
         # lowest (= last) level of m1D
-        size = c._sizes[0] if isinstance(c, Array) else len( c )
+        size = c.shape[0] if isinstance(c, Array) else len(c)
         s = ''
         if isinstance(c[0], StructType):
             pass
         elif isinstance(c[0]._val, bool):
-            for i in range( size ):
-                s = ''.join((s, '{}, '.format('\'1\'' if c[i] else '\'0\'' )))
+            for i in range(size):
+                s = ''.join((s, '{}, '.format('\'1\'' if c[i] else '\'0\'')))
         else:
             # intbv
-            for i in range( size ):
-                s = ''.join((s, ' to_{}signed( {}, {} ){}'.format( '' if c[i]._min < 0 else 'un', c[i], c[i]._nrbits, ', ' ) ))
+            for i in range(size):
+                s = ''.join((s, ' to_{}signed( {}, {} ){}'.format(
+                    '' if c[i]._min < 0 else 'un', c[i], c[i]._nrbits, ', ')))
         return s[:-2]
 
-def expandarray( c  ):
+
+def expandarray(c):
     if isinstance(c[0], (list, Array)):
-        size = c._sizes[0] if isinstance(c, Array) else len( c )
+        size = c.shape[0] if isinstance(c, Array) else len(c)
         s = ''
-        for i in range( size ):
+        for i in range(size):
             s = ''.join((s, '(', expandarray(c[i]), ')'))
             if i != size - 1:
-                s = ''.join((s, ',\n' ))
+                s = ''.join((s, ',\n'))
         return s
     else:
         # lowest (= last) level of m1D
-        size = c._sizes[0] if isinstance(c, Array) else len( c )
+        size = c.shape[0] if isinstance(c, Array) else len(c)
         s = ''
         if isinstance(c[0], StructType):
-            pass
+            for i in range(size):
+                s = ''.join((s, '{}, '.format(c[i].initial())))
         elif isinstance(c[0]._val, bool):
             if size > 1:
-                for i in range( size ):
-                    s = ''.join((s, '{}, '.format('\'1\'' if c[i]._val else '\'0\'' )))
+                for i in range(size):
+                    s = ''.join(
+                        (s, '{}, '.format('\'1\'' if c[i]._val else '\'0\'')))
             else:
-                s = ''.join((s, '{}, '.format('"1"' if c[0]._val else '"0"' )))
+                s = ''.join((s, '{}, '.format('"1"' if c[0]._val else '"0"')))
         else:
             # intbv
-            for i in range( size ):
-                s = ''.join((s, 'b"{}", '.format(bin(c[i]._val, c[i]._nrbits, True))))
-                
+            for i in range(size):
+                if c[i]._val:
+                    s = ''.join(
+                        (s, 'b"{}", '.format(bin(c[i]._val, c[i]._nrbits, True))))
+                else:
+                    s = ''.join((s, '(others => \'0\'), '))
 
-#TODO:  cut long lines
-        
+# TODO:  cut long lines
+
         # remove trailing ', '
         return s[:-2]
-     
-class _typedef( object ):
-    def __init__(self ):
+
+
+class _typedef(object):
+
+    def __init__(self):
         self.names = []
         self.basetypes = []
         self.VHDLcodes = []
-    
+
     def clear(self):
         self.names = []
         self.basetypes = []
         self.VHDLcodes = []
-    
+
     def add(self, name, basetypes, VHDLcode):
         if name not in self.names:
-            self.names.append( name )
-            self.basetypes.append( basetypes )
-            self.VHDLcodes.append( VHDLcode )
-            
+            self.names.append(name)
+            self.basetypes.append(basetypes)
+            self.VHDLcodes.append(VHDLcode)
+
     def write(self, f):
-        # first 'sort' 
+        # first 'sort'
         nrtd = len(self.names)
         idx = 0
         while idx < nrtd:
             bt = self.basetypes[idx]
             if bt is not None:
-                if bt in self.names[idx+1:]:
-                    btidx = self.names.index( bt )
-                    self.names.insert( idx , self.names.pop( btidx ))
-                    self.basetypes.insert( idx , self.basetypes.pop( btidx ))
-                    self.VHDLcodes.insert( idx , self.VHDLcodes.pop( btidx ))
-                    # stay at this index and test whether this name now has a 'predecessor'
+                if bt in self.names[idx + 1:]:
+                    btidx = self.names.index(bt)
+                    self.names.insert(idx, self.names.pop(btidx))
+                    self.basetypes.insert(idx, self.basetypes.pop(btidx))
+                    self.VHDLcodes.insert(idx, self.VHDLcodes.pop(btidx))
+                    # stay at this index and test whether this name now has a
+                    # 'predecessor'
                 else:
                     idx += 1
 
@@ -578,16 +684,16 @@ class _typedef( object ):
                 idx += 1
 
         # then write
-        for i,l in enumerate( self.VHDLcodes ):
+        for i, l in enumerate(self.VHDLcodes):
             f.write(l)
-        
-        
-def addstructuredtypedef( obj ):
+
+
+def addstructuredtypedef(obj):
     ''' adds the typedefs for a StructType
-        possibly descending down 
+        possibly descending down
     '''
     basetype = None
-    if isinstance( obj, StructType):
+    if isinstance(obj, StructType):
         refs = vars(obj)
         for key in refs:
             if isinstance(refs[key], (StructType, Array)):
@@ -595,13 +701,13 @@ def addstructuredtypedef( obj ):
         # all lower structured types are now defined
 #         rname = '\\' + obj.ref() + '\\'
         rname = obj.ref()
-        lines = "    type {} is record\n".format( rname )
+        lines = "\ttype {} is record\n".format(rname)
         # follow the sequencelist if any
         if hasattr(obj, 'sequencelist')and obj.sequencelist:
             refs = []
             for key in obj.sequencelist:
                 if hasattr(obj, key):
-                    refs.append( key )
+                    refs.append(key)
 
         else:
             refs = vars(obj)
@@ -609,20 +715,22 @@ def addstructuredtypedef( obj ):
         entries = []
         for key in refs:
             mobj = vars(obj)[key]
-            if isinstance(mobj , _Signal):
-                entries.append( "        {} : {}{};\n".format(key, _getTypeString(mobj), _getRangeString(mobj) ))
-            elif isinstance( mobj,  Array):
-#                 print(mobj.ref())
-                entries.append( "        {} : a{};\n".format(key, mobj.ref())) ###
-            elif isinstance( mobj, StructType):
-#                 entries.append( "        {} : \\{}\\;\n".format(key, mobj.ref()))
-                entries.append( "        {} : {};\n".format(key, mobj.ref()))
+            if isinstance(mobj, _Signal):
+                entries.append(
+                    "\t\t{} : {}{};\n".format(key, _getTypeString(mobj), _getRangeString(mobj)))
+            elif isinstance(mobj, Array):
+                #                 trace.print(mobj.ref())
+                entries.append("\t\t{} : {};\n".format(key, mobj.ref()))  # ##
+            elif isinstance(mobj, StructType):
+                #                 entries.append( "        {} : \\{}\\;\n".format(key, mobj.ref()))
+                entries.append("\t\t{} : {};\n".format(key, mobj.ref()))
 
         # align-format the contents
-        for l in sortalign( entries, sort = False):
-            lines += l
-        lines += "    end record ;\n\n"
-        typedefs.add( rname, None, lines)
+#         for line in sortalign(entries, sort=False):
+#             lines += line
+        lines += ''.join((sortalign(entries, sort=False)))
+        lines += "\tend record ;\n\n"
+        typedefs.add(rname, None, lines)
         basetype = rname
 
     elif isinstance(obj, Array):
@@ -633,19 +741,22 @@ def addstructuredtypedef( obj ):
                 mobj = obj.element._val
             else:
                 mobj = obj.element
-                
-            if isinstance(mobj, intbv): #m.elObj._nrbits is not None:
-                basetype = '{}{}'.format(_getTypeString(obj.element)[0], obj.element._nrbits)
-            elif isinstance( mobj, bool): #mobj._type == bool :
+
+            if isinstance(mobj, intbv):  # m.elObj._nrbits is not None:
+                basetype = '{}{}'.format(
+                    _getTypeString(obj.element)[0], obj.element._nrbits)
+            elif isinstance(mobj, bool):  # mobj._type == bool :
                 basetype = 'b'
             else:
                 raise AssertionError
-            p = '{}{}'.format( _getTypeString(obj.element), _getRangeString(obj.element))
+            p = '{}{}'.format(
+                _getTypeString(obj.element), _getRangeString(obj.element))
 
-        for _, size in  enumerate( reversed( obj._sizes )):
+        for _, size in enumerate(reversed(obj.shape)):
             o = basetype
-            basetype = 'a{}_{}'.format( size, o)
-            typedefs.add( basetype, o, "    type {} is array(0 to {}-1) of {};\n" .format(basetype, size, p))
+            basetype = 'a{}_{}'.format(size, o)
+            typedefs.add(
+                basetype, o, "\ttype {} is array(0 to {}-1) of {};\n" .format(basetype, size, p))
             # next level if any
             p = basetype
     return basetype
@@ -659,57 +770,65 @@ def _writeTypeDefs(f, memlist):
     enumused = []
     for t in sortedList:
         if t._name not in enumused:
-            enumused.append( t._name )
+            enumused.append(t._name)
             tt = "%s\n" % t._toVHDL()
-            f.write( tt )
+            f.write(tt)
     f.write("\n")
     # then write the structured types
     for m in memlist:
         if not m._used or m.usagecount == 0:
             continue
         # infer attributes for the case of named signals in a list
-#         print('inferring {:30} {:4} {:4} {}'.format( m.name, m._driven, m._read, repr(m.mem ) ))
-        inferattrs( m, m.mem)
-#         print('inferattrs: {:4} {:4}'.format( m._driven, m._read ))
+        trace.print('inferring {:30} {:4} {:4} {}'.format(m.name, m._driven, m._read, repr(m.mem)))
+        trace.push(None, 'inferattrs')
+        inferattrs(m, m.mem)
+        trace.pop()
+        trace.print('\tinferred: driven: {:4} read: {:4}'.format(m._driven, m._read))
         if m.depth == 1 and isinstance(m.elObj, StructType):
                 # a 'single' StructType
             basetype = addstructuredtypedef(m.elObj)
         elif isinstance(m.mem, Array):
             basetype = addstructuredtypedef(m.mem)
-            
+
         else:
             # it is a (multi-dimensional) list
             if isinstance(m.elObj, StructType):
+                p = basetype = m.elObj.ref()
+            elif isinstance(m.elObj, Array):
                 p = basetype = m.elObj.ref()
             else:
                 if isinstance(m.elObj, _Signal):
                     mobj = m.elObj._val
                 else:
                     mobj = m.elObj
-                    
-                if isinstance(mobj, intbv): #m.elObj._nrbits is not None:
-                    basetype = '{}{}'.format(_getTypeString(m.elObj)[0], m.elObj._nrbits)
-                elif isinstance( mobj, bool): #mobj._type == bool :
+
+                if isinstance(mobj, intbv):  # m.elObj._nrbits is not None:
+                    basetype = '{}{}'.format(
+                        _getTypeString(m.elObj)[0], m.elObj._nrbits)
+                elif isinstance(mobj, bool):  # mobj._type == bool :
                     basetype = 'b'
                 else:
                     raise AssertionError
-                p = '{}{}'.format( _getTypeString(m.elObj), _getRangeString(m.elObj))
-                
-            for _, size in  enumerate( reversed( m._sizes )):
+                p = '{}{}'.format(
+                    _getTypeString(m.elObj), _getRangeString(m.elObj))
+
+            for _, size in enumerate(reversed(m._sizes)):
                 o = basetype
-                basetype = 'a{}_{}'.format( size, o)
-                typedefs.add( basetype, o, "    type {} is array(0 to {}-1) of {};\n" .format(basetype, size, p))
+                basetype = 'a{}_{}'.format(size, o)
+                typedefs.add(
+                    basetype, o, "    type {} is array(0 to {}-1) of {};\n" .format(basetype, size, p))
                 # next level if any
                 p = basetype
-        
+
         m._typedef = basetype
-        
-    typedefs.write(f)    
+
+    typedefs.write(f)
     f.write("\n")
 
 constwires = []
 typedefs = _typedef()
 functiondefs = []
+
 
 def _writeSigDecls(f, intf, siglist, memlist):
     del constwires[:]
@@ -717,122 +836,121 @@ def _writeSigDecls(f, intf, siglist, memlist):
     del functiondefs[:]
     sl = []
     for s in siglist:
-        print(s, end='')
-
         if s._name in intf.argnames:
-            print(' in  intf.argnames {}'.format(intf.argnames))
             continue
 
         if not s._used:
-            print(' is not used {}'.format(repr(s)))
             continue
 
         r = _getRangeString(s)
         p = _getTypeString(s)
         if s._driven or s._read:
-            if not toVHDL.no_initial_values: 
+            if not toVHDL.no_initial_values:
                 if isinstance(s._val, bool):
-                    sl.append("    signal %s : %s%s := '%s';" % (s._name, p, r, 1 if s._val else 0))
+                    sl.append("    signal %s : %s%s := '%s';" %
+                              (s._name, p, r, 1 if s._val else 0))
                 elif isinstance(s._val, intbv):
-                    sl.append("    signal %s : %s%s := b\"%s\";" % (s._name, p, r, bin(s._val, s._nrbits, True)))
+                    if s._val:
+                        sl.append("    signal %s : %s%s := b\"%s\";" %
+                                  (s._name, p, r, bin(s._val, s._nrbits, True)))
+                    else:
+                        # all zeros
+                        sl.append(
+                            "    signal %s : %s%s := (others => '0');" % (s._name, p, r))
                 elif isinstance(s._val, EnumItemType):
-                    sl.append("    signal %s : %s%s := %s;" % (s._name, p, r, s._val))
+                    sl.append("    signal %s : %s%s := %s;" %
+                              (s._name, p, r, s._val))
             else:
                 sl.append("    signal %s : %s%s;" % (s._name, p, r))
-                
-                
+
             if s._driven:
                 if not s._read and not isinstance(s, _TristateDriver):
                     if not s._suppresswarning:
-                        warnings.warn("%s: %s" % (_error.UnreadSignal, s._name),
-                                      category=ToVHDLWarning
-                                      )
+                        warnings.warn(
+                            "%s: %s" % (_error.UnreadSignal, s._name), category=ToVHDLWarning)
                     else:
-                        suppressedWarnings.append( s )
-                
+                        suppressedWarnings.append(s)
+
             elif s._read:
-                warnings.warn("%s: %s" % (_error.UndrivenSignal, s._name),
-                              category=ToVHDLWarning
-                              )
+                warnings.warn(
+                    "%s: %s" % (_error.UndrivenSignal, s._name), category=ToVHDLWarning)
                 constwires.append(s)
 
         else:
-            print(' is not driven or read', end='')
             pass
-        print()
 
+    trace.print('_writeSigDecls', memlist)
     for m in memlist:
         if not m._used or m.usagecount == 0:
-#             print('1', m.name, m._used,  m.usagecount)
             continue
 
-        if not m._driven:
-#             print('2', m.name)
+        if not m.driven:
             continue
-        
+
         if not m._read:
-#             print('3', m.name)
             continue
-            
+
+        # left to process
         if isinstance(m.mem, Array):
             if m.mem._initialised or not toVHDL.no_initial_values:
-#                 print('4', m.name)
-                sl.append("    signal {} : {} := ({});" .format(m.name, m._typedef, expandarray(m.mem)))
+                sl.append("    signal {} : {} := ({});" .format(
+                    m.name, m._typedef, expandarray(m.mem)))
             else:
-                sl.append("    signal {} : {};" .format(m.name, m._typedef ))
+                sl.append("    signal {} : {};" .format(m.name, m._typedef))
         elif isinstance(m.mem, list):
             # assuming it is is a single list
             # try to shortcut the initialisation
-#             tval = m.mem[0]
-#             for i, sig in enumerate(m.mem):
-#                 if sig._val != tval:
-#                     break
-#             if i == len(m.mem) - 1:
-#                 if tval._min < 0:
-#                     rval =  'to_signed( {}, {} )'.format( tval._val, tval._nrbits)
-#                 else :
-#                     rval =  'to_unsigned( {}, {} )'.format( tval._val, tval._nrbits)
-# 
-#                 sl.append("    signal {} : {} := (others => {});" .format(m.name, m._typedef, rval))
-#             else:
+            #             tval = m.mem[0]
+            #             for i, sig in enumerate(m.mem):
+            #                 if sig._val != tval:
+            #                     break
+            #             if i == len(m.mem) - 1:
+            #                 if tval._min < 0:
+            #                     rval =  'to_signed( {}, {} )'.format( tval._val, tval._nrbits)
+            #                 else :
+            #                     rval =  'to_unsigned( {}, {} )'.format( tval._val, tval._nrbits)
+            #
+            #                 sl.append("    signal {} : {} := (others => {});" .format(m.name, m._typedef, rval))
+            #             else:
                 # the full works
             if not toVHDL.no_initial_values:
-                sl.append("    signal {} : {} := ({});" .format(m.name, m._typedef, expandarray(m.mem)))
+                sl.append("    signal {} : {} := ({});" .format(
+                    m.name, m._typedef, expandarray(m.mem)))
             else:
                 sl.append("    signal {} : {};" .format(m.name, m._typedef))
-                
+
         elif isinstance(m.mem, StructType):
-            if not toVHDL.no_initial_values: 
-                sl.append("    signal {} : {} := ({});" .format(m.name, m._typedef, m.mem.initial('vhdl') ))
+            if not toVHDL.no_initial_values:
+                sl.append("    signal {} : {} := ({});" .format(
+                    m.name, m._typedef, m.mem.initial('vhdl')))
             else:
-                sl.append("    signal {} : {};" .format(m.name, m._typedef ))
+                sl.append("    signal {} : {};" .format(m.name, m._typedef))
         else:
             pass
-      
 
-    for l in sortalign( sl , sort = True ):
-        print( l , file = f)
+    for l in sortalign(sl, sort=True):
+        print(l, file=f)
     print(file=f)
 
 
-def sortalign( sl , sort = False, port = False):
-    # align the colons  
-    maxpos = 0    
+def sortalign(sl, sort=False, port=False):
+    # align the colons
+    maxpos = 0
     for l in sl:
         if ':' in l:
             t = l.find(':')
             maxpos = t if t > maxpos else maxpos
 
     if maxpos:
-        for i,l in enumerate( sl ):
+        for i, l in enumerate(sl):
             if ':' in l:
                 p = l.find(':')
                 b, c, e = l.partition(':')
-                sl[i] =  b + ' ' * (maxpos - p) + c + e 
+                sl[i] = b + ' ' * (maxpos - p) + c + e
 
     # align after 'in', 'out' or 'inout'
     if port:
-        portdirections = ( ': in', ': out', ': inout')
+        portdirections = (': in', ': out', ': inout')
         maxpos = 0
         for l in sl:
             for tst in portdirections:
@@ -841,85 +959,78 @@ def sortalign( sl , sort = False, port = False):
                     maxpos = t if t > maxpos else maxpos
                     continue
         if maxpos:
-            for i,l in enumerate( sl ):
+            for i, l in enumerate(sl):
                 for tst in portdirections:
                     if tst in l:
                         p = l.find(tst)
                         b, c, e = l.partition(tst)
-                        sl[i] =  b + c + ' ' * (maxpos - p - len(tst)) + e 
-          
+                        sl[i] = b + c + ' ' * (maxpos - p - len(tst)) + e
+
     # align then :=' if any
     maxpos = 0
     for l in sl:
         if ':=' in l:
-            t = l.find( ':=' )
+            t = l.find(':=')
             maxpos = t if t > maxpos else maxpos
     if maxpos:
-        for i,l in enumerate( sl ):
+        for i, l in enumerate(sl):
             if ':=' in l:
-                p = l.find( ':=' )
+                p = l.find(':=')
                 b, c, e = l.partition(':=')
-                sl[i] =  b + ' ' * (maxpos - p) + c + e            
+                sl[i] = b + ' ' * (maxpos - p) + c + e
 
     if sort:
         # sort the signals
-        return sorted( sl )
+        return sorted(sl)
     else:
         return sl
 
 
-def inferattrs( m, mem):
-#     print( m.name , mem)
+def inferattrs(m, mem, level=0):
+    trace.print('{} {} {}'.format('\t' * level, m, mem))
+    level += 1
     if isinstance(mem, StructType):
-#         md, mr =  m._driven, m._read,
-#         print( "StructType" , mem._driven, mem._read)
-        refs = vars( mem )
+        refs = vars(mem)
         for k in refs:
             s = refs[k]
             if isinstance(s, _Signal):
-#                 print(s._name, s._driven, s._read)
-#                 print('inferring Signal', k, repr( s ) , s._driven, s._read)
                 if not m._driven and s._driven:
                     m._driven = s._driven
                 if not m._read and s._read:
                     m._read = s._read
-#                 # only consider a StructType signal if at least one of its members
-#                 # is both driven and read
-#                 if not m._driven or not m._read:
-#                     if s._driven and s._read:
-#                         m._driven = s._driven
-#                         m._read = s._read
             elif isinstance(s, (Array, StructType)):
                 # it may be another StructType
                 # or an Array
-#                 print(' inferring nested Array or StructType', repr( s ) , s._driven, s._read)
-                inferattrs(m, s)
+                inferattrs(m, s, level)
             else:
-#                 print( 'inferring ?', k, repr( s ))
                 pass
-#         print( 'inferattrs {:39}, {:4}, {:4}  returned {:4}, {:4}' .format( m.name,  md, mr, m._driven, m._read))
-            
+
     elif isinstance(mem[0], (list, Array)):
         for mmm in mem:
-            inferattrs(m, mmm )
+            trace.print(m, mmm, level)
+            inferattrs(m, mmm, level)
+
     else:
         # lowest (= last) level of m1D
+        trace.print(repr(m), hasattr(m, 'driven'))
         for s in mem:
-#             print( 'inferring' , s, s._driven, s._read)
-            if hasattr(m, '_driven') and hasattr(s, '_driven'):
-                if not m._driven and s._driven:
-                    m._driven = s._driven
+            trace.print('\t', repr(s), hasattr(s, 'driven'), s.driven)
+            if hasattr(m, 'driven') and hasattr(s, 'driven'):
+                if not m.driven and s.driven:
+                    m._driven = s.driven
                 if not m._read and s._read:
                     m._read = s._read
-            
+                trace.print('{} testing {} driven: {} read: {} -> {} {}'.format('\t' * level, s, s.driven, s._read, m.driven, m._read))
 
 
-def _writeCompDecls(f,  compDecls):
+def _writeCompDecls(f, compDecls):
     if compDecls is not None:
         print(compDecls, file=f)
 
+
 def _writeModuleFooter(f, arch):
     print("\nend architecture %s;" % arch, file=f)
+
 
 def _getRangeString(s):
     if isinstance(s, _Signal):
@@ -932,8 +1043,8 @@ def _getRangeString(s):
             if ls:
                 msb = ls + '-1'
             else:
-                msb = s._nrbits-1
-            return "(%s downto 0)" %  msb
+                msb = s._nrbits - 1
+            return "(%s downto 0)" % msb
         else:
             raise AssertionError
     elif isinstance(s, intbv):
@@ -942,22 +1053,22 @@ def _getRangeString(s):
             if ls:
                 msb = ls + '-1'
             else:
-                msb = s._nrbits-1
-            return "(%s downto 0)" %  msb
+                msb = s._nrbits - 1
+            return "(%s downto 0)" % msb
         else:
             raise AssertionError
-        
-        
+
+
 def _getTypeString(s):
     if isinstance(s, StructType):
-#         r = s.__class__.__name__
+        #         r = s.__class__.__name__
         r = s.ref()
-        
+
     elif isinstance(s, _Signal):
         if isinstance(s._val, EnumItemType):
             r = s._val._type._name
         elif s._type is bool:
-            r =  "std_logic"
+            r = "std_logic"
         else:
             if s._min is not None and s._min < 0:
                 r = "signed"
@@ -968,10 +1079,12 @@ def _getTypeString(s):
             r = "signed"
         else:
             r = 'unsigned'
-            
+
     return r
 
+
 def _convertGens(genlist, siglist, memlist, vfile):
+    trace.push(None, '_convertGens')
     blockBuf = StringIO()
     funcBuf = StringIO()
     for tree in genlist:
@@ -988,11 +1101,12 @@ def _convertGens(genlist, siglist, memlist, vfile):
             Visitor = _ConvertAlwaysDecoVisitor
         elif tree.kind == _kind.ALWAYS_SEQ:
             Visitor = _ConvertAlwaysSeqVisitor
-        else: # ALWAYS_COMB
+        else:  # ALWAYS_COMB
             Visitor = _ConvertAlwaysCombVisitor
         v = Visitor(tree, blockBuf, funcBuf)
         v.visit(tree)
-    vfile.write(funcBuf.getvalue()); funcBuf.close()
+    vfile.write(funcBuf.getvalue())
+    funcBuf.close()
     print("begin", file=vfile)
     print(file=vfile)
     for st in portConversions:
@@ -1016,58 +1130,85 @@ def _convertGens(genlist, siglist, memlist, vfile):
     print(file=vfile)
     # shadow signal assignments
     for s in siglist:
-        if hasattr(s, 'toVHDL') and s._read:
-            r =  s.toVHDL()
-            print(r, file=vfile)
-    # hack for slice signals in a list
+        #         trace.print(s._name, repr(s), s)
+        if hasattr(s, 'toVHDL'):
+            if s._read:
+                if s._name is None:
+                    trace.print('signal target name missing for {}'.format(repr(s)))
+                if isinstance(s, ConcatSignal):
+                    #                     trace.print('_convertGens is ConcatSignal: ', repr(s))
+                    r = '    {} <= ({});'.format(s._name, s.elements('VHDL'))
+                else:
+                    r = s.toVHDL()
+                print(r, file=vfile)
+#             else:
+#                 trace.print('not read', repr(s))
+    # hack for shadow-signals in a list etc
     for m in memlist:
+        #         if isinstance(m.mem, (Array, StructType)):
+        #             if m.mem.isshadow:
+        #                 trace.print(m.mem._name)
         if m._read:
-            if isinstance(m.mem, StructType):
-#                 print('_convertGens, skipping StructType')
-                pass
+            if isinstance(m.mem, (Array, StructType)):
+                trace.print('_convertGens, Array or StructType', m.mem._name, m.mem, m.mem.isshadow)
+                if m.mem.isshadow:
+                    #                     trace.print('    isshadow')
+                    r = '\n'.join(m.mem.toVHDL())
+                    print(r, file=vfile)
             else:
+                # a list
+                # possibly of Array or StructType !
+                trace.print(m.mem)
                 for s in m.mem:
-                    if hasattr(s, 'toVHDL'):
-                        r =  s.toVHDL()
-                        print(r, file=vfile)
+                    trace.print(s)
+                    if isinstance(s, (Array, StructType)):
+                        if s.isshadow:
+                            r = '\n'.join(s.toVHDL())
+                            print(r, file=vfile)
+                    else:
+                        if hasattr(s, 'toVHDL'):
+                            #                         trace.print('toVHDL hasattr', repr(s))
+                            r = s.toVHDL()
+                            print(r, file=vfile)
     print(file=vfile)
-    vfile.write(blockBuf.getvalue()); blockBuf.close()
+    vfile.write(blockBuf.getvalue())
+    blockBuf.close()
+    trace.pop()
 
 
 opmap = {
-    ast.Add      : '+',
-    ast.Sub      : '-',
-    ast.Mult     : '*',
-    ast.Div      : '/',
-    ast.Mod      : 'mod',
-    ast.Pow      : '**',
-    ast.LShift   : 'shift_left',
-    ast.RShift   : 'shift_right',
-    ast.BitOr    : 'or',
-    ast.BitAnd   : 'and',
-    ast.BitXor   : 'xor',
-    ast.FloorDiv : '/',
-    ast.Invert   : 'not ',
-    ast.Not      : 'not ',
-    ast.UAdd     : '+',
-    ast.USub     : '-',
-    ast.Eq       : '=',
-    ast.Gt       : '>',
-    ast.GtE      : '>=',
-    ast.Lt       : '<',
-    ast.LtE      : '<=',
-    ast.NotEq    : '/=',
-    ast.And      : 'and',
-    ast.Or       : 'or',
+    ast.Add: '+',
+    ast.Sub: '-',
+    ast.Mult: '*',
+    ast.Div: '/',
+    ast.Mod: 'mod',
+    ast.Pow: '**',
+    ast.LShift: 'shift_left',
+    ast.RShift: 'shift_right',
+    ast.BitOr: 'or',
+    ast.BitAnd: 'and',
+    ast.BitXor: 'xor',
+    ast.FloorDiv: '/',
+    ast.Invert: 'not ',
+    ast.Not: 'not ',
+    ast.UAdd: '+',
+    ast.USub: '-',
+    ast.Eq: '=',
+    ast.Gt: '>',
+    ast.GtE: '>=',
+    ast.Lt: '<',
+    ast.LtE: '<=',
+    ast.NotEq: '/=',
+    ast.And: 'and',
+    ast.Or: 'or',
 }
 
 
 class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
 
     def __init__(self, tree, buf):
-#         tracejb( "_ConvertVisitor : __init__" )
-#         print( '_ConvertVisitor', tree.name)
-#         print('\n_ConvertVisitor {}'.format(tree))
+        #         trace.print( '_ConvertVisitor', tree.name)
+        #         trace.print('\n_ConvertVisitor {}'.format(tree))
         self.tree = tree
         self.buf = buf
         self.returnLabel = tree.name
@@ -1078,29 +1219,24 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.context = None
         self.astinfo = None
         self.line = ''
-#         tracejbdedent()
+        self.funcBuf = None
 
     def write(self, arg):
-#         tracejb( "_ConvertVisitor: write" )
         self.buf.write("%s" % arg)
         self.line += "%s" % arg
-#         tracejbdedent()
 
     def writeline(self, nr=1):
-#         tracejb( "_ConvertVisitor: writeline" )
         for _ in range(nr):
             self.buf.write("\n")
         self.buf.write("%s" % self.ind)
         self.line = "%s" % self.ind
-#         tracejbdedent()
 
     def writeDoc(self, node):
-#         tracejb( "_ConvertVisitor: writeDoc" )
         assert hasattr(node, 'doc')
         doc = _makeDoc(node.doc, self.ind)
+        print('<', doc, '>')
         self.write(doc)
         self.writeline()
-#         tracejbdedent()
 
     def IntRepr(self, obj):
         if obj >= 0:
@@ -1109,13 +1245,10 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             s = "(- %s)" % abs(int(obj))
         return s
 
-
     def BitRepr(self, item, var):
         return 'b"%s"' % bin(item, len(var), True)
 
-
     def inferCast(self, vhd, ori):
-#         print('inferCast', vhd, ori)
         pre, suf = "", ""
         if isinstance(vhd, vhd_int):
             if isinstance(ori, vhd_array):
@@ -1128,14 +1261,15 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                     pre, suf = "resize(", ", %s)" % vhd.size
             elif isinstance(ori, vhd_signed):
                 if vhd.size != ori.size:
-                    # note the order of resizing and casting here (otherwise bug!)
+                    # note the order of resizing and casting here (otherwise
+                    # bug!)
                     pre, suf = "resize(unsigned(", "), %s)" % vhd.size
                 else:
                     pre, suf = "unsigned(", ")"
             elif isinstance(ori, vhd_array):
                 pass
             else:
-#                 print('?')
+                #                 trace.print('?')
                 pre, suf = "to_unsigned(", ", %s)" % vhd.size
         elif isinstance(vhd, vhd_signed):
             if isinstance(ori, vhd_signed):
@@ -1143,22 +1277,24 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                     pre, suf = "resize(", ", %s)" % vhd.size
             elif isinstance(ori, vhd_unsigned):
                 if vhd.size != ori.size:
-                    # I think this should be the order of resizing and casting here
+                    # I think this should be the order of resizing and casting
+                    # here
                     pre, suf = "signed(resize(", ", %s))" % vhd.size
                 else:
                     pre, suf = "signed(", ")"
             elif isinstance(ori, vhd_array):
-#                 print('inferCast', vhd, ori)
+                #                 trace.print('inferCast: vhd_array', vhd, ori)
                 pass
             else:
                 pre, suf = "to_signed(", ", %s)" % vhd.size
         elif isinstance(vhd, vhd_boolean):
             if not isinstance(ori, vhd_boolean):
                 pre, suf = "bool(", ")"
-#                 pre, suf = "(", " = '1')" # purer VHDL? but fails several 'conversion tests'
+# pre, suf = "(", " = '1')" # purer VHDL? but fails several 'conversion
+# tests'
         elif isinstance(vhd, vhd_std_logic):
             if not isinstance(ori, vhd_std_logic):
-                if isinstance(ori, vhd_unsigned) :
+                if isinstance(ori, vhd_unsigned):
                     pre, suf = "", "(0)"
                 else:
                     pre, suf = "stdl(", ")"
@@ -1168,61 +1304,75 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         elif isinstance(vhd, vhd_enum):
             if not isinstance(ori, vhd_enum):
                 pre, suf = "%s'pos(" % vhd._type._name, ")"
-        return pre, suf
+        elif isinstance(vhd, vhd_array):
+            pass
+#             if isinstance(ori, vhd_array):
+#                 # may have to do some casting ...
+#                 trace.print('may have to so some casting ...', ori, vhd)
+#                 pass
+#             else:
+#                 trace.print('may have to so some extra casting ...', ori, vhd)
 
+        return pre, suf
 
     def writeIntSize(self, n):
         # write size for large integers (beyond 32 bits signed)
         # with some safety margin
-        if n >= 2**30:
-            size = int(math.ceil(math.log(n+1,2))) + 1  # sign bit!
+        if n >= 2 ** 30:
+            size = int(math.ceil(math.log(n + 1, 2))) + 1  # sign bit!
             self.write("%s'sd" % size)
 
     def writeDeclaration(self, obj, name, kind="", dir="", endchar=";", constr=True):
         if isinstance(obj, EnumItemType):
             tipe = obj._type._name
-            
+
         elif isinstance(obj, _Ram):
             tipe = "t_array_%s" % name
             elt = inferVhdlObj(obj.elObj).toStr(True)
-            self.write("type %s is array(0 to %s-1) of %s;" % (tipe, obj.depth, elt))
+            self.write("type %s is array(0 to %s-1) of %s;" %
+                       (tipe, obj.depth, elt))
             self.writeline()
-            
+
         elif isinstance(obj, Array):
             # make the type
-            if isinstance(obj.element, bool) :
+            #             if isinstance(obj.element, bool) :
+            #                 basetype = 'b'
+            #             elif obj.element._nrbits is not None:
+            #                 basetype = '{}{}'.format(_getTypeString(obj.element)[0],  obj.element._nrbits)
+            #             else:
+            #                 raise AssertionError
+            p = '{}{}'.format(
+                _getTypeString(obj.element), _getRangeString(obj.element))
+            if isinstance(obj.element, bool):
                 basetype = 'b'
             elif obj.element._nrbits is not None:
-                basetype = '{}{}'.format(_getTypeString(obj.element)[0],  obj.element._nrbits)
+                basetype = '{}{}'.format(
+                    _getTypeString(obj.element)[0], obj.element._nrbits)
             else:
                 raise AssertionError
-            p = '{}{}'.format( _getTypeString(obj.element), _getRangeString(obj.element))
-            if isinstance(obj.element, bool) :
-                basetype = 'b'
-            elif obj.element._nrbits is not None:
-                basetype = '{}{}'.format(_getTypeString(obj.element)[0], obj.element._nrbits)
-            else:
-                raise AssertionError            
-            
-            for _, size in  enumerate( reversed( obj._sizes )):
+
+            for _, size in enumerate(reversed(obj.shape)):
                 o = basetype
-                basetype = 'a{}_{}'.format( size, 0)
+                basetype = 'a{}_{}'.format(size, 0)
 #                 if basetype not in typedefs:
 #                     self.write("type {} is array(0 to {}-1) of {};" .format(basetype, size, p))
-                typedefs.add(basetype, 0, basetype, "type {} is array(0 to {}-1) of {};" .format(basetype, size, p))
+                typedefs.add(
+                    basetype, basetype, "type {} is array(0 to {}-1) of {};" .format(basetype, size, p))
                 # next level if any
                 p = basetype
             tipe = basetype
-            
+
         else:
             vhd = inferVhdlObj(obj)
             if isinstance(vhd, vhd_enum):
                 tipe = obj._val._type._name
             else:
                 tipe = vhd.toStr(constr)
-                
-        if kind: kind += " "
-        if dir: dir += " "
+
+        if kind:
+            kind += " "
+        if dir:
+            dir += " "
         self.write("%s%s: %s%s%s" % (kind, name, dir, tipe, endchar))
 
     def writeDeclarations(self):
@@ -1231,7 +1381,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.write("variable L: line;")
         for name, obj in self.tree.vardict.items():
             if isinstance(obj, _loopInt):
-                continue # hack for loop vars
+                continue  # hack for loop vars
             self.writeline()
             self.writeDeclaration(obj, name, kind="variable")
 
@@ -1242,10 +1392,15 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.ind = self.ind[:-4]
 
     def visit_BinOp(self, node):
+        global trace
         if isinstance(node.op, (ast.LShift, ast.RShift)):
             self.shiftOp(node)
         elif isinstance(node.op, (ast.BitAnd, ast.BitOr, ast.BitXor)):
+            #             if isinstance(node.op, ast.BitXor):
+                #                 trace = True
+            #                 trace.print('visit_BinOp', node.left, node.right)
             self.BitOp(node)
+#             trace = False
         elif isinstance(node.op, ast.Mod) and (self.context == _context.PRINT):
             self.visit(node.left)
             self.write(", ")
@@ -1298,9 +1453,8 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             pre, suf = "(", ")"
         return pre, suf
 
-
     def BinOp(self, node):
-#         print('BinOp', node.op, node.left, node.right)
+        #         trace.print('BinOp', node.op, node.left, node.right)
         if isinstance(node.left.vhd, vhd_array) or isinstance(node.right.vhd, vhd_array):
             operator = '&'
         else:
@@ -1321,7 +1475,6 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 node.vhdOri.size = ns
         pre, suf = self.inferCast(node.vhd, node.vhdOri)
         return pre, suf
-
 
     def shiftOp(self, node):
         pre, suf = self.inferShiftOpCast(node, node.left, node.right, node.op)
@@ -1373,21 +1526,20 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.write(suf)
 
     def visit_Attribute(self, node):
-#         print('visit_Attribute {}'.format(node))
+        #         trace.print('visit_Attribute {}'.format(node))
         if isinstance(node.ctx, ast.Store):
             self.setAttr(node)
         else:
             self.getAttr(node)
-        if node.attr in ('next', 'posedge', 'negedge') :
+        if node.attr in ('next', 'posedge', 'negedge'):
             pass
         else:
-#             print('? {}'.format(node.attr))
+            #             trace.print('? {}'.format(node.attr))
             if not isinstance(node.value.obj, EnumType):
-                if hasattr(node.value, 'id')  :
-                    self.write( '{}.{}'.format( node.value.id, node.attr) )
+                if hasattr(node.value, 'id'):
+                    self.write('{}.{}'.format(node.value.id, node.attr))
                 else:
-                    self.write( '.{}'.format(node.attr))
-
+                    self.write('.{}'.format(node.attr))
 
     def setAttr(self, node):
         self.SigAss = True
@@ -1410,7 +1562,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             return
 
         if isinstance(node.value, ast.Attribute):
-            self.visit( node.value )
+            self.visit(node.value)
         else:
             assert isinstance(node.value, ast.Name), node.value
             n = node.value.id
@@ -1420,7 +1572,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 obj = self.tree.vardict[n]
             else:
                 raise AssertionError("object not found")
-            
+
             if isinstance(obj, _Signal):
                 if node.attr == 'next':
                     sig = self.tree.symdict[node.value.id]
@@ -1439,20 +1591,19 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                     self.write(pre)
                     self.visit(node.value)
                     self.write(suf)
-                    
+
             elif isinstance(obj, StructType):
-#                 print('getAttr, skipping StructType')
+                #                 trace.print('getAttr, skipping StructType')
                 pass
-                
+
             if isinstance(obj, (_Signal, intbv)):
                 if node.attr in ('min', 'max'):
                     self.write("%s" % node.obj)
-                    
+
             if isinstance(obj, EnumType):
                 assert hasattr(obj, node.attr)
                 e = getattr(obj, node.attr)
                 self.write(e._toVHDL())
-            
 
     def visit_Assert(self, node):
         # XXX
@@ -1466,9 +1617,11 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.dedent()
 
     def visit_Assign(self, node):
-#         print('visit_Assign {}'.format(node))
+        trace.push(None, 'visit_Assign')
         lhs = node.targets[0]
         rhs = node.value
+        self.context = _context.ASSIGNMENT
+
         # shortcut for expansion of ROM in case statement
         if isinstance(node.value, ast.Subscript) and \
                 isinstance(node.value.slice, ast.Index) and \
@@ -1481,7 +1634,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             size = lhs.vhd.size
             for i, n in enumerate(rom):
                 self.writeline()
-                if i == len(rom)-1:
+                if i == len(rom) - 1:
                     self.write("when others => ")
                 else:
                     self.write("when %s => " % i)
@@ -1500,10 +1653,12 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.dedent()
             self.writeline()
             self.write("end case;")
+            trace.pop()
             return
 
         elif isinstance(node.value, ast.ListComp):
             # skip list comprehension assigns for now
+            trace.pop()
             return
 
         # default behavior
@@ -1511,24 +1666,33 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         if isinstance(lhs.vhd, vhd_type):
             rhs.vhd = lhs.vhd
         self.isLhs = True
-        self.visit( lhs )
+#         trace.push(None, 'visit_Assign visit(lhs)')
+        self.visit(lhs)
+#         trace.pop()
         self.isLhs = False
+#         trace.push(None, 'assign')
         if self.SigAss:
             if isinstance(lhs.value, ast.Name):
                 sig = self.tree.symdict[lhs.value.id]
+                trace.print('sig', sig)
             self.write(' <= ')
             self.SigAss = False
         else:
             self.write(' := ')
+#         trace.pop()
         self.write(convOpen)
         # node.expr.target = obj = self.getObj(node.nodes[0])
+#         trace.push(None, 'visit_Assign visit(rhs)')
         self.visit(rhs)
+#         trace.pop()
         self.write(convClose)
         self.write(';')
+        self.context = None
+        trace.pop()
 
     def visit_AugAssign(self, node):
         # XXX apparently no signed context required for augmented assigns
-        left, op, right =  node.target, node.op, node.value
+        left, op, right = node.target, node.op, node.value
         isFunc = False
         pre, suf = "", ""
         if isinstance(op, (ast.Add, ast.Sub, ast.Mult, ast.Mod, ast.FloorDiv)):
@@ -1576,19 +1740,20 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.require(node, val is not None, "cannot calculate len")
             self.write(repr(val))
             return
-        
+
         elif f is now:
             pre, suf = self.inferCast(node.vhd, node.vhdOri)
             self.write(pre)
             self.write("(now / 1 ns)")
             self.write(suf)
             return
-        
+
         elif f is ord:
             opening, closing = '', ''
             if isinstance(node.args[0], ast.Str):
                 if len(node.args[0].s) > 1:
-                    self.raiseError(node, _error.UnsupportedType, "Strings with length > 1" )
+                    self.raiseError(
+                        node, _error.UnsupportedType, "Strings with length > 1")
                 else:
                     node.args[0].s = ord(node.args[0].s)
         elif f in integer_types:
@@ -1607,8 +1772,8 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.visit(arg)
             self.write(post)
             return
-        
-        elif f == intbv.signed: # note equality comparison
+
+        elif f == intbv.signed:  # note equality comparison
             # this call comes from a getattr
             arg = fn.value
             pre, suf = self.inferCast(node.vhd, node.vhdOri)
@@ -1621,7 +1786,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.write(closing)
             self.write(suf)
             return
-        
+
         elif f == intbv.unsigned:
             arg = fn.value
 #             pre, suf = self.inferCast(node.vhd, node.vhdOri)
@@ -1634,7 +1799,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.write(closing)
             self.write(suf)
             return
-        
+
         elif (type(f) in class_types) and issubclass(f, Exception):
             self.write(f.__name__)
         elif f in (posedge, negedge):
@@ -1644,18 +1809,19 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.visit(node.args[0])
             self.write(" * 1 ns")
             return
-        
+
         elif f is concat:
             pre, suf = self.inferCast(node.vhd, node.vhdOri)
-            opening, closing =  "unsigned'(", ")"
+            opening, closing = "unsigned'(", ")"
             sep = " & "
         elif hasattr(node, 'tree'):
             pre, suf = self.inferCast(node.vhd, node.tree.vhd)
             fname = node.tree.name
         else:
-#             print( repr(f) )
+            #             trace.print(repr(f))
             self.write(f.__name__)
 
+#         trace.print(fname, node.args)
         if node.args:
             self.write(pre)
             # TODO rewrite making use of fname variable
@@ -1667,13 +1833,15 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 self.visit(arg)
             self.write(closing)
             self.write(suf)
-            
+        else:
+            self.write(fname)
+
         if hasattr(node, 'tree'):
             if node.tree.kind == _kind.TASK:
                 Visitor = _ConvertTaskVisitor
             else:
                 Visitor = _ConvertFunctionVisitor
-   
+
             v = Visitor(node.tree, self.funcBuf)
             v.visit(node.tree)
 
@@ -1700,15 +1868,15 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.write("'%s'" % n)
         elif isinstance(node.vhd, vhd_boolean):
             self.write("%s" % bool(n))
-        #elif isinstance(node.vhd, (vhd_unsigned, vhd_signed)):
+        # elif isinstance(node.vhd, (vhd_unsigned, vhd_signed)):
         #    self.write('"%s"' % bin(n, node.vhd.size))
         elif isinstance(node.vhd, vhd_unsigned):
-            if abs(n) < 2**31:
+            if abs(n) < 2 ** 31:
                 self.write("to_unsigned(%s, %s)" % (n, node.vhd.size))
             else:
                 self.write('unsigned\'(b"%s")' % bin(n, node.vhd.size, True))
         elif isinstance(node.vhd, vhd_signed):
-            if abs(n) < 2**31:
+            if abs(n) < 2 ** 31:
                 self.write("to_signed(%s, %s)" % (n, node.vhd.size))
             else:
                 self.write('signed\'(b"%s")' % bin(n, node.vhd.size, True))
@@ -1744,7 +1912,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.write(';')
 
     def visit_IfExp(self, node):
-        # propagate the node's vhd attribute  
+        # propagate the node's vhd attribute
         node.body.vhd = node.orelse.vhd = node.vhd
         self.write('tern_op(')
         self.write('cond => ')
@@ -1774,7 +1942,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 start, stop, step = args[0], args[1], None
             else:
                 start, stop, step = args
-        else: # downrange
+        else:  # downrange
             cmp = '>='
             op = 'downto'
             if len(args) == 1:
@@ -1784,11 +1952,11 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             else:
                 start, stop, step = args
         assert step is None
-##        if node.breakLabel.isActive:
-##             self.write("begin: %s" % node.breakLabel)
-##             self.writeline()
-##         if node.loopLabel.isActive:
-##             self.write("%s: " % node.loopLabel)
+# #        if node.breakLabel.isActive:
+# #             self.write("begin: %s" % node.breakLabel)
+# #             self.writeline()
+# #         if node.loopLabel.isActive:
+# #             self.write("%s: " % node.loopLabel)
         self.write("for %s in " % var)
         if start is None:
             self.write("0")
@@ -1809,9 +1977,9 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.dedent()
         self.writeline()
         self.write("end loop;")
-##         if node.breakLabel.isActive:
-##             self.writeline()
-##             self.write("end")
+# #         if node.breakLabel.isActive:
+# #             self.writeline()
+# #             self.write("end")
         self.labelStack.pop()
         self.labelStack.pop()
 
@@ -1845,9 +2013,9 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 itemRepr = i
             comment = ""
             # potentially use default clause for last test
-            if (i == len(node.tests)-1) and not node.else_:
-#                 self.write("when others")
-#                 comment = " -- %s" % itemRepr
+            if (i == len(node.tests) - 1) and not node.else_:
+                #                 self.write("when others")
+                #                 comment = " -- %s" % itemRepr
                 self.write("when ")
                 self.write(itemRepr)
             else:
@@ -1899,8 +2067,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.write("end if;")
 
     def visit_ListComp(self, node):
-        pass # do nothing
-
+        pass  # do nothing
 
     def visit_Module(self, node):
         for stmt in node.body:
@@ -1920,13 +2087,14 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.write(node.id)
 
     def getName(self, node):
+        trace.push(None, '_ConvertVisitor, getName')
         n = node.id
         if n == 'False':
             if isinstance(node.vhd, vhd_std_logic):
                 s = "'0'"
             else:
                 s = "False"
-                
+
         elif n == 'True':
             if isinstance(node.vhd, vhd_std_logic):
                 s = "'1'"
@@ -1939,7 +2107,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             else:
                 assert hasattr(node.vhd, 'size')
                 s = '"%s"' % ('Z' * node.vhd.size)
-                
+
         elif n in self.tree.vardict:
             s = n
             obj = self.tree.vardict[n]
@@ -1952,10 +2120,10 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             obj = self.tree.symdict[n]
             vhd = inferVhdlObj(obj)
             if isinstance(vhd, vhd_std_logic) and isinstance(node.vhd, vhd_boolean):
-                s = "(%s = '1')" %  n
+                s = "(%s = '1')" % n
             else:
                 s = n
-                
+
         elif n in self.tree.symdict:
             obj = self.tree.symdict[n]
             s = n
@@ -1966,61 +2134,65 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                     s = "%s" % obj
             elif isinstance(obj, integer_types):
                 if isinstance(node.vhd, vhd_int):
+                    #                     trace.print('self.tree.symdict, integer_types', n, type(node.vhd), node.vhd)
                     s = self.IntRepr(obj)
                 elif isinstance(node.vhd, vhd_boolean):
-                    s = "%s" % bool(obj) 
+                    s = "%s" % bool(obj)
                 elif isinstance(node.vhd, vhd_std_logic):
                     s = "'%s'" % int(obj)
                 elif isinstance(node.vhd, vhd_unsigned):
-                    if abs(obj) < 2** 31:
+                    if abs(obj) < 2 ** 31:
                         s = "to_unsigned(%s, %s)" % (obj, node.vhd.size)
                     else:
                         s = 'unsigned\'(b"%s")' % bin(obj, node.vhd.size, True)
                 elif isinstance(node.vhd, vhd_signed):
-                    if abs(obj) < 2** 31:
+                    if abs(obj) < 2 ** 31:
                         s = "to_signed(%s, %s)" % (obj, node.vhd.size)
                     else:
                         s = 'signed\'(b"%s")' % bin(obj, node.vhd.size, True)
-                            
+
             elif isinstance(obj, _Signal):
                 s = str(obj)
                 ori = inferVhdlObj(obj)
                 pre, suf = self.inferCast(node.vhd, ori)
                 s = "%s%s%s" % (pre, s, suf)
-                
+
             elif _isMem(obj):
                 m = _getMemInfo(obj)
                 assert m.name
+                trace.print('_isMem', repr(obj), m.name)
                 s = m.name
 
             elif isinstance(obj, EnumItemType):
                 s = obj._toVHDL()
-                
+
             elif (type(obj) in class_types) and issubclass(obj, Exception):
                 s = n
-                
+
             elif isinstance(obj, list):
                 s = n
 #                 self.raiseError(node, _error.UnsupportedType, "%s, %s" % (n, type(obj)))
 
             # dead code?
-            elif isinstance( obj, Array):
+            # the _isMem test is...
+            elif isinstance(obj, Array):
                 s = obj._name
 
-            elif isinstance( obj, StructType):
-#                 print(n, repr(obj))
+            elif isinstance(obj, StructType):
+                #                 trace.print(n, repr(obj))
                 s = obj._name
 
             elif isinstance(obj, dict):
-#                 print('obj is dict', obj, s, n)
+                #                 trace.print('obj is dict', obj, s, n)
                 pass
                 # access the dict object
-     
+
             else:
                 self.raiseError(node, _error.UnsupportedType, "%s, %s" % (n, type(obj)))
         else:
             raise AssertionError("name ref: %s" % n)
         self.write(s)
+        trace.pop()
 
     def visit_Pass(self, node):
         self.write("null;")
@@ -2061,9 +2233,8 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
     def visit_Return(self, node):
         pass
 
-
     def visit_Subscript(self, node):
-#         print('visit_Subscript {}'.format(node))
+        #         trace.print('visit_Subscript {}'.format(node))
         if isinstance(node.slice, ast.Slice):
             self.accessSlice(node)
         else:
@@ -2076,7 +2247,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             c = self.getVal(node)._val
             pre, post = "", ""
             if isinstance(node.obj, Array):
-#                 print('accessSlice on Array')
+                #                 trace.print('accessSlice on Array')
                 pass
             if node.vhd.size <= 30:
                 if isinstance(node.vhd, vhd_unsigned):
@@ -2086,7 +2257,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             else:
                 if isinstance(node.vhd, vhd_unsigned):
                     pre, post = "unsigned'(", ")"
-                    c = 'b"%s"' % bin(c, node.vhd.size,True)
+                    c = 'b"%s"' % bin(c, node.vhd.size, True)
                 elif isinstance(node.vhd, vhd_signed):
                     pre, post = "signed'(", ")"
                     c = 'b"%s"' % bin(c, node.vhd.size, True)
@@ -2094,7 +2265,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.write("%s" % c)
             self.write(post)
             return
-#         
+#
 # #         logjb( node.vhd, 'node.vhd', True)
 # #         logjb( node.vhdOri, 'node.vhdOri')
 #         pre, suf = '', ''
@@ -2105,7 +2276,9 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 pre = pre + "unsigned("
                 suf = ")" + suf
         self.write(pre)
-        self.visit(node.value) # this brings us to self.visit_Name, onto self.getName where the cast is enforced in case of numeric_ports == False
+        # this brings us to self.visit_Name, onto self.getName where the cast
+        # is enforced in case of numeric_ports == False
+        self.visit(node.value)
         lower, upper = node.slice.lower, node.slice.upper
         if isinstance(node.obj, Array):
             if lower is None and upper is None:
@@ -2119,11 +2292,13 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 self.visit(lower)
             self.write(" to ")
             if upper is None:
-                self.write("{}". format( self.getVal(node.slice.lower) + node.obj._sizes[0] ))    # unfortunately ._sizes[0] is the 'sliced' size
+                # unfortunately .shape[0] is the 'sliced' size
+                self.write(
+                    "{}". format(self.getVal(node.slice.lower) + node.obj.shape[0]))
             else:
                 self.visit(upper)
-            
-            self.write(" - 1)")   
+
+            self.write(" - 1)")
             self.write(suf)
 
         else:
@@ -2131,41 +2306,45 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             if lower is None and upper is None:
                 self.write(suf)
                 return
-            
+
             self.write("(")
-            
+
             if lower is None:
                 self.write("%s" % node.obj._nrbits)
             else:
                 self.visit(lower)
-                
+
             self.write("-1 downto ")
-            
+
             if upper is None:
                 self.write("0")
             else:
                 self.visit(upper)
-                
+
             self.write(")")
             self.write(suf)
 
     def accessIndex(self, node):
-#         pre, suf = '', ''
-#         if not isinstance(node.value, Array):
+        #         pre, suf = '', ''
+        #         if not isinstance(node.value, Array):
         pre, suf = self.inferCast(node.vhd, node.vhdOri)
         self.write(pre)
-        # if we are accessing an element out of a list of constants we can short-circuit here
+        # if we are accessing an element out of a list of constants we can
+        # short-circuit here
         if isinstance(node.value.obj, (list)) and isinstance(node.value.obj[0], int):
             if hasattr(node.slice.value, 'value'):
-                self.write('({:-d})'.format(node.value.obj[node.slice.value.value]))
+                self.write(
+                    '({:-d})'.format(node.value.obj[node.slice.value.value]))
             else:
                 self.write('({})'.format(node.slice.value.id))
 #         elif isinstance(node.value.obj, Array):
 #             self.write( "<jb>")
         else:
-            self.visit(node.value) # this will eventually give us the name, but possibly with an 'unsigned' cast ...
+            # this will eventually give us the name, but possibly with an
+            # 'unsigned' cast ...
+            self.visit(node.value)
             self.write("(")
-            #assert len(node.subs) == 1
+            # assert len(node.subs) == 1
             self.visit(node.slice.value)
             self.write(")")
         self.write(suf)
@@ -2179,13 +2358,25 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 self.write(';')
 
     def visit_Tuple(self, node):
-        assert self.context != None
-        sep = ", "
-        tpl = node.elts
-        self.visit(tpl[0])
-        for elt in tpl[1:]:
-            self.write(sep)
-            self.visit(elt)
+        #         assert self.context != None, 'self.context is None'
+        if self.context == _context.PRINT:
+            sep = ", "
+            tpl = node.elts
+            self.visit(tpl[0])
+            for elt in tpl[1:]:
+                self.write(sep)
+                self.visit(elt)
+        elif self.context == _context.ASSIGNMENT:
+            #             trace.print('Assigning a tuple?', node, node.elts)
+            self.write('(')
+            for i, elt in enumerate(node.elts):
+                #                 trace.print(repr(elt))
+                self.visit(elt)
+                if i < len(node.elts) - 1:
+                    self.write(', ')
+            self.write(')')
+        else:
+            raise ValueError('self.context is None')
 
     def visit_While(self, node):
         self.labelStack.append(node.breakLabel)
@@ -2224,7 +2415,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         elif isinstance(first, _Signal):
             bt = _Signal
         elif isinstance(first, delay):
-            bt  = delay
+            bt = delay
         assert bt
         for e in senslist:
             if not isinstance(e, bt):
@@ -2258,7 +2449,6 @@ class _ConvertAlwaysVisitor(_ConvertVisitor):
         _ConvertVisitor.__init__(self, tree, blockBuf)
         self.funcBuf = funcBuf
 
-
     def visit_FunctionDef(self, node):
         self.writeDoc(node)
         w = node.body[-1]
@@ -2268,7 +2458,8 @@ class _ConvertAlwaysVisitor(_ConvertVisitor):
         assert isinstance(y, ast.Yield)
         senslist = y.senslist
         senslist = self.manageEdges(w.body[1], senslist)
-        singleEdge = (len(senslist) == 1) and isinstance(senslist[0], _WaiterList)
+        singleEdge = (len(senslist) == 1) and isinstance(
+            senslist[0], _WaiterList)
         self.write("%s: process (" % self.tree.name)
         if singleEdge:
             self.write(senslist[0].sig)
@@ -2310,12 +2501,11 @@ class _ConvertInitialVisitor(_ConvertVisitor):
         _ConvertVisitor.__init__(self, tree, blockBuf)
         self.funcBuf = funcBuf
 
-
     def visit_FunctionDef(self, node):
-#         # strip MYHDLnnn_
-#         _, __, tname = self.tree.name.partition( '_')
-#         if tname not in functiondefs:
-#             functiondefs.append(tname)
+        #         # strip MYHDLnnn_
+        #         _, __, tname = self.tree.name.partition( '_')
+        #         if tname not in functiondefs:
+        #             functiondefs.append(tname)
         self.writeDoc(node)
         self.write("%s: process is" % self.tree.name)
         self.indent()
@@ -2343,7 +2533,6 @@ class _ConvertAlwaysCombVisitor(_ConvertVisitor):
         _ConvertVisitor.__init__(self, tree, blockBuf)
         self.funcBuf = funcBuf
 
-
     def visit_FunctionDef(self, node):
         # a local function works nicely too
         def compressSensitivityList(senslist):
@@ -2352,29 +2541,37 @@ class _ConvertAlwaysCombVisitor(_ConvertVisitor):
             '''
             r = []
             for item in senslist:
-#                 print( repr( item._name ))
+                #                 trace.print( repr( item._name ))
                 if item._name is not None:
                     # split off the base name (before the index ()
                     # and/or weed the .attr
-                    name, _, _ = item._name.split('(',1)[0].partition('.')
+                    name, _, _ = item._name.split('(', 1)[0].partition('.')
                     if name not in r:
-                        r.append( name ) # note that the list now contains names and not Signals, but we are interested in the strings anyway ...
+                        # note that the list now contains names and not
+                        # Signals, but we are interested in the strings anyway
+                        # ...
+                        r.append(name)
 
             return r
 
         self.writeDoc(node)
-#         print(self.tree.senslist)
-        senslist = compressSensitivityList( self.tree.senslist )
-#         print('> ', senslist)
-        self.write("%s: process (" % self.tree.name)
-        if len(senslist) > 0:
-            for e in senslist[:-1]:
-                self.write(e)
-                self.write(', ')
-            self.write(senslist[-1])
+#         trace.print(self.tree.name)
+#         trace.print(self.tree.senslist)
+        senslist = compressSensitivityList(self.tree.senslist)
+#         trace.print('> ', senslist)
+        if toVHDL.standard == '2008':
+            self.write("%s: process ( all ) is" % self.tree.name)
         else:
-            pass
-        self.write(") is")
+            self.write("%s: process (" % self.tree.name)
+            if len(senslist) > 0:
+                for e in senslist[:-1]:
+                    if e not in constantlist:
+                        self.write(e)
+                        self.write(', ')
+                self.write(senslist[-1])
+            else:
+                pass
+            self.write(") is")
         self.indent()
         self.indent()
         self.writeDeclarations()
@@ -2396,7 +2593,6 @@ class _ConvertSimpleAlwaysCombVisitor(_ConvertVisitor):
         _ConvertVisitor.__init__(self, tree, blockBuf)
         self.funcBuf = funcBuf
 
-
     def visit_Attribute(self, node):
         if isinstance(node.ctx, ast.Store):
             self.SigAss = True
@@ -2407,8 +2603,8 @@ class _ConvertSimpleAlwaysCombVisitor(_ConvertVisitor):
         else:
             self.getAttr(node)
 
-
     def visit_FunctionDef(self, node, *args):
+        print(node)
         self.writeDoc(node)
         self.visit_stmt(node.body)
         self.writeline(2)
@@ -2420,22 +2616,25 @@ class _ConvertAlwaysDecoVisitor(_ConvertVisitor):
         _ConvertVisitor.__init__(self, tree, blockBuf)
         self.funcBuf = funcBuf
 
-
     def visit_FunctionDef(self, node, *args):
         self.writeDoc(node)
         assert self.tree.senslist
         senslist = self.tree.senslist
         senslist = self.manageEdges(node.body[-1], senslist)
-        singleEdge = (len(senslist) == 1) and isinstance(senslist[0], _WaiterList)
-        self.write("%s: process (" % self.tree.name)
-        if singleEdge:
-            self.write(senslist[0].sig)
+        singleEdge = (len(senslist) == 1) and isinstance(
+            senslist[0], _WaiterList)
+        if toVHDL.standard == '2008':
+            self.write("%s: process ( all ) is" % self.tree.name)
         else:
-            for e in senslist[:-1]:
-                self.write(e)
-                self.write(', ')
-            self.write(senslist[-1])
-        self.write(") is")
+            self.write("%s: process (" % self.tree.name)
+            if singleEdge:
+                self.write(senslist[0].sig)
+            else:
+                for e in senslist[:-1]:
+                    self.write(e)
+                    self.write(', ')
+                self.write(senslist[-1])
+            self.write(") is")
         self.indent()
         self.indent()
         self.writeDeclarations()
@@ -2472,10 +2671,10 @@ def _convertInitVal(reg, init):
         vhd_tipe = 'unsigned'
         if reg._min is not None and reg._min < 0:
             vhd_tipe = 'signed'
-        if abs(init) < 2**31:
+        if abs(init) < 2 ** 31:
             v = '%sto_%s(%s, %s)%s' % (pre, vhd_tipe, init, len(reg), suf)
         else:
-#             v = '%s%s\'"%s"%s' % (pre, vhd_tipe, bin(init, len(reg)), suf)
+            #             v = '%s%s\'"%s"%s' % (pre, vhd_tipe, bin(init, len(reg)), suf)
             v = '%sb"%s"%s' % (pre, bin(init, len(reg), True), suf)
     else:
         assert isinstance(init, EnumItemType)
@@ -2488,7 +2687,6 @@ class _ConvertAlwaysSeqVisitor(_ConvertVisitor):
     def __init__(self, tree, blockBuf, funcBuf):
         _ConvertVisitor.__init__(self, tree, blockBuf)
         self.funcBuf = funcBuf
-
 
     def visit_FunctionDef(self, node, *args):
         self.writeDoc(node)
@@ -2557,7 +2755,6 @@ class _ConvertFunctionVisitor(_ConvertVisitor):
         self.returnObj = tree.returnObj
         self.returnLabel = _Label("RETURN")
 
-
     def writeOutputDeclaration(self):
         self.write(self.tree.vhd.toStr(constr=False))
 
@@ -2568,18 +2765,25 @@ class _ConvertFunctionVisitor(_ConvertVisitor):
             endchar = ";"
             obj = self.tree.symdict[name]
             self.writeline()
-            self.writeDeclaration(obj, name, dir="in", constr=False, endchar="")
-
-
+            self.writeDeclaration(
+                obj, name, dir="in", constr=False, endchar="")
 
     def visit_FunctionDef(self, node):
         if self.tree.name not in functiondefs:
-            functiondefs.append( self.tree.name )
-            self.write("\tfunction %s(" % self.tree.name)
-            self.indent()
-            self.writeInputDeclarations()
-            self.writeline()
-            self.write(") return ")
+            functiondefs.append(self.tree.name)
+            self.write("\tfunction %s" % self.tree.name)
+            if self.tree.argnames:
+                self.write("(")
+                self.indent()
+                self.writeInputDeclarations()
+                self.write(")")
+#             if True:
+#                 self.write('(')
+#                 self.indent()
+#                 self.writeInputDeclarations()
+#                 self.writeline()
+#                 self.write(") ")
+            self.write(" return ")
             self.writeOutputDeclaration()
             self.write(" is")
             self.writeDeclarations()
@@ -2592,7 +2796,6 @@ class _ConvertFunctionVisitor(_ConvertVisitor):
             self.writeline()
             self.write("end function %s;" % self.tree.name)
             self.writeline(2)
-
 
     def visit_Return(self, node):
         self.write("return ")
@@ -2607,7 +2810,6 @@ class _ConvertTaskVisitor(_ConvertVisitor):
         _ConvertVisitor.__init__(self, tree, funcBuf)
         self.returnLabel = _Label("RETURN")
 
-
     def writeInterfaceDeclarations(self):
         endchar = ""
         for name in self.tree.argnames:
@@ -2619,7 +2821,8 @@ class _ConvertTaskVisitor(_ConvertVisitor):
             inout = minput and moutput
             direction = (inout and "inout") or (moutput and "out") or "in"
             self.writeline()
-            self.writeDeclaration(obj, name, dir=direction, constr=False, endchar="")
+            self.writeDeclaration(
+                obj, name, dir=direction, constr=False, endchar="")
 
     def visit_FunctionDef(self, node):
         self.write("procedure %s" % self.tree.name)
@@ -2641,111 +2844,132 @@ class _ConvertTaskVisitor(_ConvertVisitor):
         self.writeline(2)
 
 
-
-
 # type inference
 
 
 class vhd_type(object):
+
     def __init__(self, size=0):
         self.size = size
 
     def __repr__(self):
         return "%s(%s)" % (type(self).__name__, self.size)
 
+
 class vhd_string(vhd_type):
     pass
 
+
 class vhd_enum(vhd_type):
-    def __init__(self, tipe, size = None):
-#         tracejb( "vhd_enum: init" )
+
+    def __init__(self, tipe, size=None):
+        #         tracejb( "vhd_enum: init" )
         self._type = tipe
 #         logjb( tipe )
-        #26-05-2014 jb need a size
+        # 26-05-2014 jb need a size
         self.size = size
 #         tracejbdedent()
 
-    def toStr(self, constr = True):
-#         tracejb( "vhd_enum: toStr" )
+    def toStr(self, constr=True):
+        #         tracejb( "vhd_enum: toStr" )
         r = self._type.__dict__['_name']
 #         logjb( r )
 #         tracejbdedent()
         return r
 
+
 class vhd_std_logic(vhd_type):
+
     def __init__(self, size=0):
-#         tracejb( "vhd_std_logic: init" )
+        #         tracejb( "vhd_std_logic: init" )
         vhd_type.__init__(self)
         self.size = 1
 #         tracejbdedent()
 
     def toStr(self, constr=True):
-#         tracejb( "vhd_std_logic: toStr" )
-#         tracejbdedent()
+        #         tracejb( "vhd_std_logic: toStr" )
+        #         tracejbdedent()
         return 'std_logic'
 
 
 class vhd_boolean(vhd_type):
+
     def __init__(self, size=0):
-#         tracejb( "vhd_boolean: init" )
-#         tracejbdedent()
+        #         tracejb( "vhd_boolean: init" )
+        #         tracejbdedent()
         vhd_type.__init__(self)
         self.size = 1
 
     def toStr(self, constr=True):
-#         tracejb( "vhd_boolean: toStr" )
-#         tracejbdedent()
+        #         tracejb( "vhd_boolean: toStr" )
+        #         tracejbdedent()
         return 'boolean'
 
 
 class vhd_vector(vhd_type):
+
     def __init__(self, size=0, lenStr=False):
         vhd_type.__init__(self, size)
         self.lenStr = lenStr
 
 
 class vhd_unsigned(vhd_vector):
+
     def toStr(self, constr=True):
-#         tracejb( "vhd_unsigned: toStr" )
-#         tracejbdedent()
+        #         tracejb( "vhd_unsigned: toStr" )
+        #         tracejbdedent()
         if constr:
             ls = self.lenStr
             if ls:
                 return "unsigned(%s-1 downto 0)" % ls
             else:
-                return "unsigned(%s downto 0)" % (self.size-1)
+                return "unsigned(%s downto 0)" % (self.size - 1)
         else:
             return "unsigned"
 
+
 class vhd_signed(vhd_vector):
+
     def toStr(self, constr=True):
-#         tracejb( "vhd_signed: toStr" )
-#         tracejbdedent()
+        #         tracejb( "vhd_signed: toStr" )
+        #         tracejbdedent()
         if constr:
             ls = self.lenStr
             if ls:
                 return "signed(%s-1 downto 0)" % ls
             else:
-                return "signed(%s downto 0)" % (self.size-1)
+                return "signed(%s downto 0)" % (self.size - 1)
         else:
             return "signed"
 
+
 class vhd_int(vhd_type):
+
     def toStr(self, constr=True):
-#         tracejb( "vhd_int: toStr" )
-#         tracejbdedent()
+        #         tracejb( "vhd_int: toStr" )
+        #         tracejbdedent()
         return "integer"
 
+
 class vhd_nat(vhd_int):
+
     def toStr(self, constr=True):
-#         tracejb( "vhd_nat: toStr" )
-#         tracejbdedent()
+        #         tracejb( "vhd_nat: toStr" )
+        #         tracejbdedent()
         return "natural"
 
+
 class vhd_array(vhd_type):
+
+    def __init__(self, sizes, vhdtype):
+        vhd_type.__init__(self)
+        self.sizes = sizes
+        self.vhdtype = vhdtype
+
     def to_Str(self):
         return 'Array'
-    
+
+
 class _loopInt(int):
     pass
 
@@ -2769,65 +2993,67 @@ def maxType(o1, o2):
         return None
 
 
-def inferVhdlObj(obj, attr = None):
+def inferVhdlObj(obj, attr=None):
     vhd = None
-#     print(sys._getframe().f_back.f_code.co_name)
+#     trace.print(sys._getframe().f_back.f_code.co_name)
 
-    if (isinstance(obj, _Signal) and isinstance(obj._val, intbv)) or \
-       isinstance(obj, intbv):
+    if (isinstance(obj, _Signal) and isinstance(obj._val, intbv)) or isinstance(obj, intbv):
         ls = getattr(obj, 'lenStr', False)
         if obj.min is None or obj.min < 0:
             vhd = vhd_signed(size=len(obj), lenStr=ls)
         else:
             vhd = vhd_unsigned(size=len(obj), lenStr=ls)
-    elif (isinstance(obj, _Signal) and isinstance(obj._val, bool)) or \
-         isinstance(obj, bool):
+    elif (isinstance(obj, _Signal) and isinstance(obj._val, bool)) or isinstance(obj, bool):
         vhd = vhd_std_logic()
-    elif (isinstance(obj, _Signal) and isinstance(obj._val, EnumItemType)) or\
-         isinstance(obj, EnumItemType):
+    elif (isinstance(obj, _Signal) and isinstance(obj._val, EnumItemType)) or isinstance(obj, EnumItemType):
         if isinstance(obj, _Signal):
             tipe = obj._val._type
         else:
             tipe = obj._type
-        vhd = vhd_enum(tipe , obj._nrbits)
+        vhd = vhd_enum(tipe, obj._nrbits)
 
     elif isinstance(obj, integer_types):
         if obj >= 0:
             vhd = vhd_nat()
         else:
             vhd = vhd_int()
-    elif isinstance( obj , EnumType):
+
+    elif isinstance(obj, EnumType):
         vhd = vhd_enum(None)
-        
-    elif isinstance(obj,(list, Array)):
+
+    elif isinstance(obj, (list, Array)):
+        #         trace.print('inferring', obj)
         if isinstance(obj, list):
-#             print(obj)
-            _, _, _, element = m1Dinfo( obj )
-        else:    
+            #             trace.print(obj)
+            _, sizes, _, element = m1Dinfo(obj)
+        else:
             element = obj.element
+            sizes = obj.shape
 
         if isinstance(element, _Signal):
-            if  isinstance(element._val, intbv):
+            if isinstance(element._val, intbv):
                 ls = getattr(element, 'lenStr', False)
                 if element.min is not None and element.min < 0:
-                    vhd = vhd_signed(size=len(element), lenStr=ls)
+                    vhd = vhd_array(
+                        sizes, vhd_signed(size=len(element), lenStr=ls))
                 else:
-                    vhd = vhd_unsigned(size=len(element), lenStr=ls)
+                    vhd = vhd_array(
+                        sizes, vhd_unsigned(size=len(element), lenStr=ls))
             elif isinstance(element._val, bool):
-                vhd = vhd_std_logic()
+                vhd = vhd_array(sizes, vhd_std_logic())
             else:
                 pass
-            
+
         else:
             # defaulting?
             pass
-        
+
     elif isinstance(obj, StructType):
         # need the member name?
         if attr is not None:
-            refs = vars( obj )
+            refs = vars(obj)
             element = refs[attr]
-            if isinstance(element, _Signal) and isinstance( element._val, intbv):
+            if isinstance(element, _Signal) and isinstance(element._val, intbv):
                 ls = getattr(element, 'lenStr', False)
                 if element.min is not None and element.min < 0:
                     vhd = vhd_signed(size=len(element), lenStr=ls)
@@ -2837,12 +3063,12 @@ def inferVhdlObj(obj, attr = None):
                 vhd = vhd_std_logic()
             else:
                 # defaulting?
-#                 print('inferVhdlObj, StructType: defaulting {}'.format(element))
+                #                 trace.print('inferVhdlObj, StructType: defaulting {}'.format(element))
                 pass
         else:
-#             print('inferVhdlObj, {} StructType: attr is None'.format(obj))
+            #             trace.print('inferVhdlObj, {} StructType: attr is None'.format(obj))
             pass
-    
+
     return vhd
 
 
@@ -2853,32 +3079,32 @@ def maybeNegative(vhd):
         return True
     return False
 
+
 class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
 
     def __init__(self, tree):
-#         print('\n_AnnotateTypesVisitor {}'.format(tree))
+        #         trace.print('\n_AnnotateTypesVisitor {}'.format(tree))
         self.tree = tree
 
-
     def visit_FunctionDef(self, node):
-#         print('visit_FunctionDef {} {}'.format(node, node.name))
+        #         trace.print('visit_FunctionDef {} {}'.format(node, node.name))
         # don't visit arguments and decorators
         for stmt in node.body:
             self.visit(stmt)
 
     # a placeholder to follow the AST
     def visit_Assign(self, node):
-#         print('visit_Assign {}'.format(node))
+        #         trace.print('visit_Assign {}'.format(node))
         self.generic_visit(node)
 
-
     def visit_Attribute(self, node):
-#         print('visit_Attribute {}'.format(node))
+        #         trace.print('visit_Attribute {}'.format(node))
         if hasattr(node, 'starget'):
             node.value.starget = node.starget
         else:
-#             if node.attr in ('next',) and isinstance(node.value.obj, StructType):
-            if node.attr in ('next',) :
+            # if node.attr in ('next',) and isinstance(node.value.obj,
+            # StructType):
+            if node.attr in ('next',):
                 # start a target chain
                 node.value.starget = node.value.obj
             else:
@@ -2934,7 +3160,7 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
             node.vhd = vhd_int()
         elif f is now:
             node.vhd = vhd_nat()
-        elif f == intbv.signed: # note equality comparison
+        elif f == intbv.signed:  # note equality comparison
             # this comes from a getattr
             node.vhd = vhd_signed(fn.value.vhd.size)
         elif hasattr(node, 'tree'):
@@ -2942,7 +3168,7 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
             v.visit(node.tree)
             node.vhd = node.tree.vhd = inferVhdlObj(node.tree.returnObj)
         else:
-#             print('Unhandled visit_Call {}: {} {} {}, {}'.format(node, fn, f, node.obj, node.vhd))
+            #             trace.print('Unhandled visit_Call {}: {} {} {}, {}'.format(node, fn, f, node.obj, node.vhd))
             pass
         node.vhdOri = copy(node.vhd)
 
@@ -2974,11 +3200,11 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
         # make it possible to detect loop variable
         self.tree.vardict[var] = _loopInt(-1)
         self.generic_visit(node)
- 
+
     def visit_NameConstant(self, node):
         node.vhd = inferVhdlObj(node.value)
         node.vhdOri = copy(node.vhd)
-    
+
     def visit_Name(self, node):
         # is a terminal
         if node.id in self.tree.vardict:
@@ -2992,14 +3218,17 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
 
     def visit_BinOp(self, node):
         self.generic_visit(node)
+#         if isinstance(node.op, ast.BitXor):
+#             trace.print('visit_BinOp', repr(node.left), repr(node.op), repr(node.right))
+
         if isinstance(node.op, (ast.LShift, ast.RShift)):
             self.inferShiftType(node)
         elif isinstance(node.op, (ast.BitAnd, ast.BitOr, ast.BitXor)):
             self.inferBitOpType(node)
-        elif isinstance(node.op, ast.Mod) and isinstance(node.left, ast.Str): # format string
+        # format string
+        elif isinstance(node.op, ast.Mod) and isinstance(node.left, ast.Str):
             pass
         else:
-#             print( 'visit_BinOp', repr(node.left), repr(node.op), repr(node.right))
             self.inferBinOpType(node)
 
     def inferShiftType(self, node):
@@ -3014,28 +3243,28 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
 
     def inferBinOpType(self, node):
         left, op, right = node.left, node.op, node.right
-#         print( 'inferBinOpType 1', left.vhd, right.vhd)
+#         trace.print( 'inferBinOpType 1', left.vhd, right.vhd)
         if isinstance(left.vhd, (vhd_boolean, vhd_std_logic)):
             left.vhd = vhd_unsigned(1)
-            
+
         if isinstance(right.vhd, (vhd_boolean, vhd_std_logic)):
             right.vhd = vhd_unsigned(1)
-            
+
         if isinstance(right.vhd, vhd_unsigned):
             if maybeNegative(left.vhd) or \
                (isinstance(op, ast.Sub) and not hasattr(node, 'isRhs')):
                 right.vhd = vhd_signed(right.vhd.size + 1)
-                
+
         if isinstance(left.vhd, vhd_unsigned):
             if maybeNegative(right.vhd) or \
                (isinstance(op, ast.Sub) and not hasattr(node, 'isRhs')):
                 left.vhd = vhd_signed(left.vhd.size + 1)
 
         l, r = left.vhd, right.vhd
-#         print( 'inferBinOpType 2 {} {}\n {} {}'.format( left.vhd, repr(left), right.vhd, repr(right)))
+#         trace.print( 'inferBinOpType 2 {} {}\n {} {}'.format( left.vhd, repr(left), right.vhd, repr(right)))
         ls = l.size
         rs = r.size
-#         print( 'inferBinOpType 3', ls, rs)
+#         trace.print( 'inferBinOpType 3', ls, rs)
         if isinstance(r, vhd_vector) and isinstance(l, vhd_vector):
             if isinstance(op, (ast.Add, ast.Sub)):
                 s = max(ls, rs)
@@ -3061,22 +3290,22 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
                 s = 2 * rs
             else:
                 raise AssertionError("unexpected op %s" % op)
-            
-        if isinstance(l, vhd_int) and isinstance(r, (vhd_int,vhd_enum)):
+
+        if isinstance(l, vhd_int) and isinstance(r, (vhd_int, vhd_enum)):
             if isinstance(r, vhd_int):
                 node.vhd = vhd_int()
             else:
-                node.vhd = vhd_enum(r._type._name,rs)
+                node.vhd = vhd_enum(r._type._name, rs)
         elif isinstance(l, (vhd_signed, vhd_int)) and isinstance(r, (vhd_signed, vhd_int)):
             node.vhd = vhd_signed(s)
         elif isinstance(l, (vhd_unsigned, vhd_int)) and isinstance(r, (vhd_unsigned, vhd_int)):
             node.vhd = vhd_unsigned(s)
         elif isinstance(l, vhd_array) or isinstance(r, vhd_array):
-#             print( 'Array')
-            node.vhd = vhd_array(0) 
+            trace.print('inferBinOpType: Array')
+            node.vhd = vhd_array(0)
         else:
             node.vhd = vhd_int()
-            
+
         node.vhdOri = copy(node.vhd)
 
     def visit_BoolOp(self, node):
@@ -3094,15 +3323,17 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
             test.vhd = vhd_boolean()
 
     def visit_IfExp(self, node):
-        self.generic_visit(node) # this will visit the 3 ast.Name objects
+        self.generic_visit(node)  # this will visit the 3 ast.Name objects
         node.test.vhd = vhd_boolean()
 
     def visit_ListComp(self, node):
-        pass # do nothing
-
+        pass  # do nothing
 
     def visit_Subscript(self, node):
-#         print('visit_Subscript {}'.format(node))
+        #         trace.print('visit_Subscript {}'.format(node))
+        #         for item in inspect.getmembers( node ):
+        #             if not item[0].startswith('__') and not item[0].endswith('__') :
+        #                 trace.print( '    ', item )
         if isinstance(node.slice, ast.Slice):
             self.accessSlice(node)
         else:
@@ -3110,6 +3341,7 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
 
     def accessSlice(self, node):
         self.generic_visit(node)
+#         trace.print(node, node.obj)
         if isinstance(node.obj, intbv) or (isinstance(node.obj, _Signal) and isinstance(node.obj._val, intbv)):
             lower = node.value.vhd.size
             t = type(node.value.vhd)
@@ -3124,71 +3356,92 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
                 upper = self.getVal(node.slice.upper)
 
             if isinstance(node.ctx, ast.Store):
-                node.vhd = t(lower-upper)
+                node.vhd = t(lower - upper)
             else:
-                node.vhd = vhd_unsigned(lower-upper)
-
+                node.vhd = vhd_unsigned(lower - upper)
 
         elif isinstance(node.obj, Array):
-#             node.vhd = None
-            node.vhd = vhd_array(0)
+            #             node.vhd = None
+            #             trace.print('accessSlice: Array', repr(node.obj))
+            #             trace.print(repr(node.value))
+            #             upper = node.value.vhd.size
+            #             t = type(node.value.vhd)
+            #             trace.print(upper, t)
+            upper = node.obj.shape[0]
+
+            if node.slice.upper:
+                node.slice.upper.vhd = vhd_int()
+                upper = self.getVal(node.slice.upper)
+#                 trace.print('upper: ', upper)
+
+            lower = 0
+            if node.slice.lower:
+                node.slice.lower.vhd = vhd_int()
+                lower = self.getVal(node.slice.lower)
+#                 trace.print('lower: ', lower)
+
+            if isinstance(node.ctx, ast.Store):
+                #                 trace.print('ast.Store')
+                pass
+            else:
+                #                 trace.print('upper, lower', upper, lower)
+                node.vhd = vhd_array((upper - lower), node.obj.element)
 #             if isinstance(node.obj._dtype, bool):
 #                 node.vhd = vhd_std_logic()
 #             elif isinstance(node.obj._dtype, intbv):
 #                 node.vhd = vhd_unsigned(node.obj._nrbits)
 #             else:
-#                 print( "???")
-
+#                 trace.print( "???")
 
         node.vhdOri = copy(node.vhd)
 
     def accessIndex(self, node):
-#         print('accessIndex 1 {}'.format(node))
+        #         trace.print('accessIndex 1 {}'.format(node))
         self.generic_visit(node)
-        node.vhd = vhd_std_logic() # XXX default
+        node.vhd = vhd_std_logic()  # XXX default
         node.slice.value.vhd = vhd_int()
         obj = node.value.obj
         if isinstance(obj, list):
             assert len(obj)
-            _, _, _, element = m1Dinfo( obj )
+            _, _, _, element = m1Dinfo(obj)
             node.vhd = inferVhdlObj(element)
-            
+
         elif isinstance(obj, Array):
             if isinstance(obj.element, StructType):
-#                 print('accessIndex 2 {}'.format(node))
-                # there may be an attribute involved                
+                #                 trace.print('accessIndex 2 {}'.format(node))
+                # there may be an attribute involved
                 node.vhd = inferVhdlObj(obj.element)
             else:
                 node.vhd = inferVhdlObj(obj.element)
-            
+
         elif isinstance(obj, _Ram):
             node.vhd = inferVhdlObj(obj.elObj)
-            
+
         elif isinstance(obj, _Rom):
             node.vhd = vhd_int()
-            
+
         elif isinstance(obj, intbv):
             node.vhd = vhd_std_logic()
-            
+
         else:
-#             print('accessIndex: noaction')
+            #             trace.print('accessIndex: noaction')
             pass
-        
+
         node.vhdOri = copy(node.vhd)
-        
+
     def visit_UnaryOp(self, node):
         self.visit(node.operand)
         node.vhd = copy(node.operand.vhd)
         if isinstance(node.op, ast.Not):
             # postpone this optimization until initial values are written
-#            if isinstance(node.operand.vhd, vhd_std_logic):
-#                node.vhd = vhd_std_logic()
-#            else:
-#                node.vhd = node.operand.vhd = vhd_boolean()
+            #            if isinstance(node.operand.vhd, vhd_std_logic):
+            #                node.vhd = vhd_std_logic()
+            #            else:
+            #                node.vhd = node.operand.vhd = vhd_boolean()
             node.vhd = node.operand.vhd = vhd_boolean()
         elif isinstance(node.op, ast.USub):
             if isinstance(node.vhd, vhd_unsigned):
-                node.vhd = vhd_signed(node.vhd.size+1)
+                node.vhd = vhd_signed(node.vhd.size + 1)
             elif isinstance(node.vhd, vhd_nat):
                 node.vhd = vhd_int()
         node.vhdOri = copy(node.vhd)
@@ -3204,10 +3457,3 @@ def _annotateTypes(genlist):
             continue
         v = _AnnotateTypesVisitor(tree)
         v.visit(tree)
-
-
-
-
-
-
-
