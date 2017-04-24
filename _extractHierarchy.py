@@ -50,16 +50,18 @@ _profileFunc = None
 
 class _error:
     pass
+
+
 _error.NoInstances = "No instances found"
 _error.InconsistentHierarchy = "Inconsistent hierarchy - are all instances returned ?"
-_error.InconsistentToplevel = "Inconsistent top level %s for %s - should be 1"
+_error.InconsistentToplevel = "Inconsistent top level %s for %s - should be 1 (are you missing an '@always[_comb | _seq]' decorator?)"
 
 
 class _Instance(object):
     __slots__ = ['level', 'obj', 'subs', 'sigdict',
                  'memdict', 'name', 'func', 'argdict', 'objdict']
 
-    def __init__(self, level, obj, subs, sigdict, memdict, func, argdict, objdict=None):
+    def __init__(self, level, obj, subs, sigdict, memdict, func, argdict, objdict=None, name=None):
         self.level = level
         self.obj = obj
         self.subs = subs
@@ -69,6 +71,7 @@ class _Instance(object):
         self.argdict = argdict
         if objdict:
             self.objdict = objdict
+        self.name = name
 
     def __repr__(self):
         #         lines = ['_Instance\n\tlevel: {}'.format(self.level)]
@@ -78,8 +81,9 @@ class _Instance(object):
         #                 sublines.append('\t\t{}'.format(item))
         #             lines.extend( '\{}'.format(sublines))
 
-        return '_Instance\n\tlevel: {}\n\tobj: {}\n\tsubs: {}\n\tsigdict: {}\n\tmemdict: {}\n\tfunc: {}\n\targdict: {}' \
-            .format(self.level, self.obj, self.subs, self.sigdict, self.memdict, self.func, self.argdict)
+        return '_Instance\n\tname:{}\n\tlevel: {}\n\tobj: {}\n\tsubs: {}\n\tsigdict: {}\n\tmemdict: {}\n\tfunc: {}\n\targdict: {}' \
+            .format(self.name, self.level, self.obj, self.subs, self.sigdict, self.memdict, self.func, self.argdict)
+
 
 _memInfoMap = collections.OrderedDict()  # {}
 
@@ -137,6 +141,7 @@ def _makeMemInfo(mem, levels, sizes, totalelements, element):
 
 def _isMem(mem):
     return id(mem) in _memInfoMap
+
 
 _userCodeMap = {'verilog': {},
                 'vhdl': {}
@@ -308,6 +313,9 @@ class _HierExtr(object):
         _profileFunc = self.extractor
         sys.setprofile(_profileFunc)
         _top = dut(*args, **kwargs)
+        trace.push(message='_HierExtr')
+        for tt in _top:
+            trace.print(tt)
         sys.setprofile(None)
         if not hierarchy:
             raise ExtractHierarchyError(_error.NoInstances)
@@ -453,7 +461,7 @@ class _HierExtr(object):
                                 memdict[n] = m
                                 if n in cellvars:
                                     m._used = True
-                                    m._driven = v.driven
+#                                     m._driven = v.driven
 
                         elif isinstance(v, StructType):
                             trace.print('_HierExtr {} StructType {} {}'.format(self.level, n, v))
@@ -477,7 +485,7 @@ class _HierExtr(object):
                             if elt is sub:
                                 subs.append((n, sub))
 
-                    inst = _Instance(self.level, arg, subs, sigdict, memdict, func, argdict)
+                    inst = _Instance(self.level, arg, subs, sigdict, memdict, func, argdict, funcname)
                     self.hierarchy.append(inst)
 
                 self.level -= 1

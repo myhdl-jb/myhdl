@@ -47,6 +47,7 @@ _error.SignalAsInout = "signal (%s) used as inout in always_comb function argume
 _error.EmbeddedFunction = "embedded functions in always_comb function argument not supported"
 _error.EmptySensitivityList = "sensitivity list is empty"
 
+
 def always_comb(func):
     if not isinstance(func, FunctionType):
         raise AlwaysCombError(_error.ArgType)
@@ -64,9 +65,11 @@ class _AlwaysComb(_Always):
     def __init__(self, func):
 
         def senslistexpand(senslist, reg):
+            #             print(repr(reg))
             if isinstance(reg, _Signal):
                 senslist.append(reg)
             elif isinstance(reg, StructType):
+                #                 print('senslistexpand StructType', repr(reg))
                 refs = vars(reg)
                 for k in refs:
                     if isinstance(refs[k], _Signal):
@@ -76,7 +79,7 @@ class _AlwaysComb(_Always):
                     elif isinstance(refs[k], StructType):
                         senslistexpand(senslist, refs[k])
                     else:
-#                         print('senslistexpand passing {}?'.format(k))
+                        #                         print('senslistexpand passing {}?'.format(k))
                         pass
             elif isinstance(reg, (list, Array)):
                 if isinstance(reg[0], (list, Array)):
@@ -102,15 +105,23 @@ class _AlwaysComb(_Always):
         s = _dedent(s)
         tree = ast.parse(s)
 #         print(ast.dump(tree))
+#         for item in ast.dump(tree).split():
+#             print(item)
         v = _AttrRefTransformer(self)
         v.visit(tree)
-#         print( ast.dump(tree) )
+#         print(ast.dump(tree))
+#         for item in ast.dump(tree).split():
+#             print(item)
         v = _SigNameVisitor(self.symdict)
         v.visit(tree)
+#         print(ast.dump(tree))
+#         for item in ast.dump(tree).split():
+#             print(item)
         self.inputs = v.results['input']
         self.outputs = v.results['output']
 #         print(v.results)
-#         print(self.inputs, self.outputs)
+#         print('inputs:', self.inputs)
+#         print('outputs:', self.outputs)
 #         inouts = v.results['inout'] | self.inputs.intersection(self.outputs)
 #         if inouts:
 #             raise AlwaysCombError(_error.SignalAsInout % inouts)
@@ -159,7 +170,3 @@ class _AlwaysComb(_Always):
         while 1:
             func()
             yield senslist
-
-
-
-

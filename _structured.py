@@ -46,11 +46,18 @@ trace = Tracing(False, source='_structured')
 
 
 def setnext(obj, value):
-    ''' a local function to do the work, recursively '''
+    '''
+        a local function to do the work, recursively
+        handles both Array and StructType
+    '''
     if isinstance(obj, (list, Array)):
         # recurse
-        for i, item in enumerate(obj):
-            setnext(item, value[i])
+        if isinstance(value, integer_types):
+            for i, item in enumerate(obj):
+                setnext(item, value)
+        else:
+            for i, item in enumerate(obj):
+                setnext(item, value[i])
     elif isinstance(obj, StructType):
         if isinstance(value, StructType):
             # assume the objects are of the same type ...
@@ -187,7 +194,7 @@ class Array(object):
                         self._dtype = self.element._val
                         self._isSignal = True
                     elif isinstance(self.element, StructType):
-                        #                         trace.print('Array from List Of StructTypes')
+                        trace.print('Array from List Of StructTypes', shape)
                         self._dtype = self.element
                     self._array = shape  # this doesn't create new elements
 
@@ -354,7 +361,10 @@ class Array(object):
             return repr(self._array)
 
     def __repr__(self):
-        return "Array{} of {}". format(self.shape, repr(self.element))
+        if self._name:
+            return "{} Array{} of {}". format(self._name, self.shape, repr(self.element))
+        else:
+            return "Array{} of {}". format(self.shape, repr(self.element))
 
     def ref(self):
         ''' return a nice reference name for the object '''
@@ -388,6 +398,7 @@ class Array(object):
 
     # get
     def __getitem__(self, *args, **kwargs):
+        #         trace.print('__getitem__:', repr(self), args)
         item = self._array.__getitem__(*args, **kwargs)
         if isinstance(item, list):
             #             trace.print('{}: __getitem__ should never return a list?'.format(self._name))
@@ -397,6 +408,7 @@ class Array(object):
 
     def __getslice__(self, *args, **kwargs):
         sliver = self._array.__getslice__(*args, **kwargs)
+        trace.print('sliver', sliver)
         if isinstance(sliver, list):
             return Array(sliver, self)
         else:
@@ -405,10 +417,10 @@ class Array(object):
 
     # set ?
     def __setitem__(self, *args, **kwargs):
-        raise TypeError("Array object doesn't support item/slice assignment")
+        raise TypeError("Array object doesn't support item assignment, have you forgotten a .next?")
 
     def __setslice__(self, *args, **kwargs):
-        raise TypeError("Array object doesn't support item/slice assignment")
+        raise TypeError("Array object doesn't support slice assignment, have you forgotten a .next?")
 
     # concatenate
     # will be tricky as we have to account for multiple dimensions!
@@ -501,8 +513,7 @@ class Array(object):
     def next(self, val):
         #         trace.print(self, ' <- ', val)
         if isinstance(val, Array):
-            val = val._array
-            self._setNextVal(val)
+            self._setNextVal(val._array)
             _siglist.append(self)
         elif isinstance(val, list):
             self._setNextVal(val)
@@ -524,11 +535,22 @@ class Array(object):
                     setnext(self[idxh], subval)
                     idxh += 1
                     idxl = idxh
+                elif isinstance(subval, integer_types):
+                    # must infer size ...
+                    raise ValueError('Array .next: don\'t handle integer in tuple')
                 elif isinstance(subval, tuple):
-                    raise ValueError('Don\'t handle tuple(s) in tuple')
+                    raise ValueError('Array .next: don\'t handle tuple(s) in tuple')
                 else:
-                    raise ValueError('Only handle Arrays and Signals')
+                    raise ValueError('Array .next: Tuple: not handled: {}'.format(repr(subval)))
             _siglist.append(self)
+        elif isinstance(val, integer_types):
+            # setting all elements to the same value
+            # mostly used to set everything to 0
+            # it will auto-recurse ...?
+            # this will simulate. but take extra work for the conversion
+            # as we may need a nested (others => (others => ...))
+            for ele in self._array:
+                ele._setNextVal(val)
 
     def _setNextVal(self, val):
         setnext(self, val)
@@ -549,7 +571,7 @@ class Array(object):
                         return True
                 return False
 
-        trace.print('Array.driven;', self._name, self._driven, ldriven(self))
+#         trace.print('Array.driven:', self._name, self._driven, ldriven(self))
         return self._driven or ldriven(self)
 
     @driven.setter
@@ -580,21 +602,22 @@ class Array(object):
     # support for the 'isshadow' attribute
     @property
     def isshadow(self):
-        def lisshadow(obj):
-            ''' a local function to do the work, recursively '''
-            if isinstance(obj[0], (list, Array)):
-                for item in obj:
-                    if lisshadow(item):
-                        return True
-            else:
-                # lowest level
-                for item in obj:
-                    if item._driven:
-                        return True
-                return False
-
-        trace.print('Array.isshadow:', self._name, self._isshadow, lisshadow(self))
-        return self._isshadow or lisshadow(self)
+        #         def lisshadow(obj):
+        #             ''' a local function to do the work, recursively '''
+        #             if isinstance(obj[0], (list, Array)):
+        #                 for item in obj:
+        #                     if lisshadow(item):
+        #                         return True
+        #             else:
+        #                 # lowest level
+        #                 for item in obj:
+        #                     if item._isshadow:
+        #                         return True
+        #                 return False
+        #
+        #         trace.print('Array.isshadow:', self._name, self._isshadow, lisshadow(self))
+        #         return self._isshadow or lisshadow(self)
+        return self._isshadow
 
     ### use call interface for shadow signals ###
     def __call__(self, start=None, end=None, stride=None, left=None, right=None, signed=False):
@@ -689,6 +712,9 @@ class Array(object):
         _toA(self, idx)
         self._isshadow = True
 #         trace.print('end:', repr(self), str(self), self)
+        # return 'self' to allow using in instantiation like:
+        #    inst = Array((,), Signal(intbv(0)[w:])).fromintbv(v)
+        return self
 
     def toVHDL(self):
         ''' 
@@ -743,7 +769,10 @@ class Array(object):
 #             # hh must be a signal
 #             val += (val << hh._nrbits) + hh._val
 #         return Signal(intbv(val, _nrbits=self.element._nrbits * len(harvest))
-        return ConcatSignal(*reversed(harvest))
+        if self.size > 1:
+            return ConcatSignal(*reversed(harvest))
+        else:
+            return self
 
     def copy(self):
         ''' return a new instance '''
@@ -891,18 +920,20 @@ class StructType(object):
             emit the VHDL code
             to assign the shadowsignals
         '''
-        if not self._isshadow:
-            raise ValueError('Cannot emit VHDL code for non-shadowed StructType {}'.format(self._name))
+#         if not self._isshadow:
+#             raise ValueError('Cannot emit VHDL code for non-shadowed StructType {}'.format(self._name))
 
-#         trace.print('Emitting StructType Shadow VHDL code for {}'.format(self._name))
         lines = []
-        for key in self.sequencelist:
-            if hasattr(self, key):
-                obj = vars(self)[key]
-                if isinstance(obj, _Signal):
-                    lines.append(obj.toVHDL())
-                elif isinstance(obj, (Array, StructType)):
-                    lines.extend(obj.toVHDL())
+        if self._isshadow:
+            #         trace.print('Emitting StructType Shadow VHDL code for {}'.format(self._name))
+            for key in self.sequencelist:
+                if hasattr(self, key):
+                    obj = vars(self)[key]
+                    if isinstance(obj, _Signal):
+                        lines.append(obj.toVHDL())
+                    elif isinstance(obj, (Array, StructType)):
+                        lines.extend(obj.toVHDL())
+
         return lines
 
     def __repr__(self):
@@ -1101,7 +1132,8 @@ class StructType(object):
                     inits.append(
                         '{} => {}, '.format(key, obj.initial(targetlanguage)))
             else:
-                pass
+                raise ValueError('Structures are not supported in Verilog, support for SystemVerilog is pending')
+
         rstr = ''.join(inits)
         return rstr[:-2]
 

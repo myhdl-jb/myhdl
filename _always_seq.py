@@ -29,20 +29,23 @@ import ast
 from myhdl import AlwaysError, intbv
 from myhdl._util import _isGenFunc, _dedent
 from myhdl._delay import delay
-from myhdl._Signal import _Signal, _WaiterList,_isListOfSigs
+from myhdl._Signal import _Signal, _WaiterList, _isListOfSigs
 from myhdl._Waiter import _Waiter, _EdgeWaiter, _EdgeTupleWaiter
 from myhdl._always import _Always
 from myhdl._resolverefs import _AttrRefTransformer
 from myhdl._visitors import _SigNameVisitor
 
-from myhdl._structured import Array
+from myhdl._structured import Array, StructType
 
 
 # evacuate this later
 AlwaysSeqError = AlwaysError
 
+
 class _error:
     pass
+
+
 _error.EdgeType = "first argument should be an edge"
 _error.ResetType = "reset argument should be a ResetSignal"
 _error.ArgType = "decorated object should be a classic (non-generator) function"
@@ -50,7 +53,9 @@ _error.NrOfArgs = "decorated function should not have arguments"
 _error.SigAugAssign = "signal assignment does not support augmented assignment"
 _error.EmbeddedFunction = "embedded functions in always_seq function not supported"
 
+
 class ResetSignal(_Signal):
+
     def __init__(self, val, active, async):
         """ Construct a ResetSignal.
 
@@ -60,7 +65,6 @@ class ResetSignal(_Signal):
         _Signal.__init__(self, bool(val))
         self.active = bool(active)
         self.async = async
-
 
 
 def always_seq(edge, reset):
@@ -89,16 +93,15 @@ def always_seq(edge, reset):
 class _AlwaysSeq(_Always):
 
     def __init__(self, func, edge, reset):
-        def sigregm1D( reg ):
-            if isinstance(reg[0], (list, Array)):
-                for r in reg:
-                    sigregm1D( r )
-            else:
-                # lowest (= last) level of m1D
-                for e in reg:
-                    sigregs.append(e)
-                                     
-        
+        #         def sigregm1D(reg):
+        #             if isinstance(reg[0], (list, Array)):
+        #                 for r in reg:
+        #                     sigregm1D(r)
+        #             else:
+        #                 # lowest (= last) level of m1D
+        #                 for e in reg:
+        #                     sigregs.append(e)
+
         senslist = [edge]
         self.reset = reset
         if reset is not None:
@@ -142,11 +145,17 @@ class _AlwaysSeq(_Always):
             elif isinstance(reg, Array):
                 for e in reg:
                     sigregs.append(e)
-            else:
-                assert _isListOfSigs(reg)
+            elif isinstance(reg, StructType):
+                srcvars = vars(reg)
+                for var in srcvars:
+                    if isinstance(var, (_Signal, Array, StructType)):
+                        sigregs.append(var)
+            elif _isListOfSigs(reg):
                 for e in reg:
                     sigregs.append(e)
-            
+            else:
+                raise ValueError('Unhandled output type')
+
     def reset_sigs(self):
         for s in self.sigregs:
             s.next = s._init

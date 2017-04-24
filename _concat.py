@@ -56,7 +56,7 @@ def concat(base, *args):
         largs = [arg for arg in base]
         print(largs)
     else:
-        raise TypeError("concat: inappropriate first argument type: %s" \
+        raise TypeError("concat: inappropriate first argument type: %s"
                         % type(base))
 
     width = 0
@@ -74,10 +74,12 @@ def concat(base, *args):
             w = 1
             v = arg
         elif isinstance(arg, str):
-            w = len(arg)
-            v = long(arg, 2)
+            # remove any underscores
+            carg = arg.replace('_', '')
+            w = len(carg)
+            v = long(carg, 2)
         else:
-            raise TypeError("concat: inappropriate argument type: %s" \
+            raise TypeError("concat: inappropriate argument type: %s"
                             % type(arg))
         if not w:
             raise TypeError("concat: arg on pos %d should have length" % (i + 1))
@@ -88,4 +90,3 @@ def concat(base, *args):
         return intbv(val, _nrbits=basewidth + width)
     else:
         return intbv(val)
-

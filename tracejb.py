@@ -40,9 +40,9 @@ class Tracing(object):
     def print(self, *args):
         if self._trace:
             if self._source is None:
-                print('{}{} '.format(self._message, ' ' * self._level), end='')
+                print('{}  '.format(self._message), end='')
             else:
-                print('[{} {}]{} '.format(self._source, self._message, ' ' * self._level), end='')
+                print('[{} {}]  '.format(self._source, self._message), end='')
             print(*args)
 
 

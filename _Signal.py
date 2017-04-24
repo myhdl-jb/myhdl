@@ -344,6 +344,29 @@ class _Signal(object):
         elif isinstance(val, string_types):
             mval = val.replace('_', '')
             lval = long(mval, 2)
+        elif isinstance(val, tuple):
+            # tuple assignment in  stead of 'concat'
+            #             print('Signal: Tuple Assignment')
+            lval = 0
+            for v in val:
+                if isinstance(v, integer_types):
+                    lval <<= 1
+                    lval += 1 if v else 0
+                elif isinstance(v, intbv):
+                    lval <<= len(v)
+                    lval += v
+                elif isinstance(v, string_types):
+                    mval = v.replace('_', '')
+                    lval <<= len(mval)
+                    lval += long(mval, 2)
+                elif isinstance(v, _Signal):
+                    if isinstance(v._val, intbv):
+                        lval <<= len(v)
+                        lval += v
+                    else:
+                        # bool
+                        lval <<= 1
+                        lval += 1 if v else 0
 #         elif not isinstance(val, integer_types):
         else:
             raise TypeError("Expected int or intbv, got %s" % type(val))

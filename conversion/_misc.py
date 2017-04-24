@@ -25,6 +25,7 @@ from __future__ import absolute_import
 
 import inspect
 import ast
+from enum import IntEnum
 
 import myhdl
 from myhdl import *
@@ -78,18 +79,18 @@ class _error(object):
     NameCollision = " Top Level Signal Name conflicts with generated Interface Signal Name"
 
 
-class _access(object):
+class _access(IntEnum):
     INPUT, OUTPUT, INOUT, UNKNOWN = range(4)
 
 
-class _kind(object):
+class _kind(IntEnum):
     NORMAL, DECLARATION, ALWAYS, INITIAL, ALWAYS_DECO, \
         ALWAYS_COMB, SIMPLE_ALWAYS_COMB, ALWAYS_SEQ, \
         TASK, REG \
         = range(10)
 
 
-class _context(object):
+class _context(IntEnum):
     BOOLEAN, YIELD, PRINT, SIGNED, UNKNOWN, ASSIGNMENT = range(6)
 
 
@@ -172,6 +173,7 @@ def _LabelGenerator():
         yield "MYHDL%s" % i
         i += 1
 
+
 _genLabel = _LabelGenerator()
 
 
@@ -199,6 +201,7 @@ class _UniqueSuffixGenerator(object):
     def next(self):
         self.i += 1
         return "_%s" % self.i
+
 
 _genUniqueSuffix = _UniqueSuffixGenerator()
 
