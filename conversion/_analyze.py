@@ -90,7 +90,7 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
         sigdict = inst.sigdict
         memdict = inst.memdict
 #         namedict = dict(chain(sigdict.items(), memdict.items()))
-#         print(inst.argdict)
+#         trace.print(inst.argdict)
         delta = curlevel - level
         curlevel = level
         assert(delta >= -1)
@@ -101,18 +101,18 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
 #             prefixes.append("")
 #             continue
         prefixes.append(name)
-#         print(prefixes)
+#         trace.print(prefixes)
         for n, s in sigdict.items():
             if s._name is not None:
-                if s._namelevel >= level:
-                    #                     print(s._namelevel, level, s._name, _makeName(n, prefixes, namedict))
-                    #                     s._name = _makeName(n, prefixes, namedict)
-                    #                     print(s._namelevel, level, s._name, _makeName(n, prefixes))
-                    s._name = _makeName(n, prefixes,)
+                #                 if s._namelevel >= level:
+                #                     #                     trace.print(s._namelevel, level, s._name, _makeName(n, prefixes, namedict))
+                #                     #                     s._name = _makeName(n, prefixes, namedict)
+                #                     #                     trace.print(s._namelevel, level, s._name, _makeName(n, prefixes))
+                #                     s._name = _makeName(n, prefixes,)
                 continue
 
             if isinstance(s, (_SliceSignal, _IndexSignal, _CloneSignal)):
-                #                 print('_analyzeSigs {} skipping {}'.format(level, repr(s)))
+                #                 trace.print('_analyzeSigs {} skipping {}'.format(level, repr(s)))
                 continue
 
 #             s._name = _makeName(n, prefixes, namedict)
@@ -124,28 +124,28 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
             # this goes only one level deep???
             for sl in s._slicesigs:
                 sl._setName(hdl)
-#                 print(sl._name, sl._slicesigs)
+#                 trace.print(sl._name, sl._slicesigs)
 #                 if sl._slicesigs:
 #                     for ssl in s._slicesigs:
 #                         ssl._setName(hdl)
-#                         print(ssl._name, ssl._slicesigs)
+#                         trace.print(ssl._name, ssl._slicesigs)
 #                     siglist.append(sl)
             siglist.append(s)
-#             print('_analyzeSigs {} {} {} siglist.append({})'.format(level, prefixes, n, repr(s)))
+#             trace.print('_analyzeSigs {} {} {} siglist.append({})'.format(level, prefixes, n, repr(s)))
         # list of signals
         for n, m in memdict.items():
             if m.name is not None:
-                #                 print('_analyzeSigs {} already taken, not replaced by {}'.format(m.name, _makeName(n, prefixes, namedict)))
-                #                 print('_analyzeSigs {} already taken, not replaced by {}'.format(m.name, _makeName(n, prefixes)))
+                #                 trace.print('_analyzeSigs {} already taken, not replaced by {}'.format(m.name, _makeName(n, prefixes, namedict)))
+                #                 trace.print('_analyzeSigs {} already taken, not replaced by {}'.format(m.name, _makeName(n, prefixes)))
                 continue
 #             m.name = _makeName(n, prefixes, namedict)
             m.name = _makeName(n, prefixes)
             if isinstance(m.mem, (Array, StructType)):
                 m.mem._name = m.name
 #             else:
-#                 print('_analyzeSigs: list:', n, m)
+#                 trace.print('_analyzeSigs: list:', n, m)
             memlist.append(m)
-#             print('_analyzeSigs {} {} {} memlist.append({})'.format(level, prefixes, n, repr(m)))
+#             trace.print('_analyzeSigs {} {} {} memlist.append({})'.format(level, prefixes, n, repr(m)))
 
     # handle the case where a named signal appears in a list also by giving
     # priority to the list and marking the signals as unused
@@ -155,19 +155,19 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
         if not m._used:
             continue
         # m is a m1D list
-#         print( "expanding", m.name)
+        trace.print( "expanding", m.name)
         expandsignalnames(m.mem, m.name, 0, 0, openp, closep)
 
     return siglist, memlist
 
 
 def expandsignalnames(memobj, name, memindex, level, openp, closep):
+    trace.print( repr(memobj), name, memindex, level)
     if isinstance(memobj, (list, Array)):
         if isinstance(memobj[0], (list, Array)):
             for i, mmm in enumerate(memobj):
                 nextname = '{}{}{}{}' .format(name, openp, i, closep)
-                expandsignalnames(
-                    mmm, nextname, memindex, level, openp, closep)
+                expandsignalnames(mmm, nextname, memindex, level, openp, closep)
         else:
             # lowest (= last) level of m1D
             if isinstance(memobj, list):
@@ -214,10 +214,11 @@ def makesname(i, s, signame, elobj, openp, closep):
         if type(s.val) != type(elobj.val):
             raise ConversionError(_error.InconsistentType, s._name)
         if s._nrbits != elobj._nrbits:
-            raise ConversionError(_error.InconsistentBitWidth, '{} {} {} {}'.format(s._name, signame, s._nrbits, elobj._nrbits))
+            raise ConversionError(_error.InconsistentBitWidth, '{} <> {}'.format( repr(s), repr(elobj)))
 
 
 def _analyzeGens(top, absnames):
+    trace.push(message='_analyzeGens')
     genlist = []
     for g in top:
         if isinstance(g, _UserCode):
@@ -245,14 +246,19 @@ def _analyzeGens(top, absnames):
             v = _FirstPassVisitor(tree)
             v.visit(tree)
             if isinstance(g, _AlwaysComb):
+                trace.push(message='_AnalyzeAlwaysCombVisitor')
                 v = _AnalyzeAlwaysCombVisitor(tree, g.senslist)
             elif isinstance(g, _AlwaysSeq):
+                trace.push(message='_AnalyzeAlwaysSeqVisitor')
                 v = _AnalyzeAlwaysSeqVisitor(
                     tree, g.senslist, g.reset, g.sigregs, g.varregs)
             else:
+                trace.push(message='_AnalyzeAlwaysDecoVisitor')
                 v = _AnalyzeAlwaysDecoVisitor(tree, g.senslist)
             v.visit(tree)
+            trace.pop()
         else:  # @instance
+            trace.push(message='@instance')
             f = g.gen.gi_frame
             tree = g.ast
             tree.symdict = f.f_globals.copy()
@@ -267,8 +273,10 @@ def _analyzeGens(top, absnames):
             v.visit(tree)
             v = _AnalyzeBlockVisitor(tree)
             v.visit(tree)
+            trace.pop()
 
         genlist.append(tree)
+    trace.pop()
     return genlist
 
 
@@ -475,6 +483,7 @@ class _Rom(object):
     def __init__(self, rom):
         self.rom = rom
 
+
 re_str = re.compile(r"[^%]+")
 re_ConvSpec = re.compile(
     r"%(?P<justified>[-]?)(?P<width>[0-9]*)(?P<conv>[sd])")
@@ -493,11 +502,13 @@ class ConvSpec(object):
         if kwargs['conv'] == 'd':
             self.conv = int
 
+
 defaultConvSpec = ConvSpec(**re_ConvSpec.match(r"%s").groupdict())
 
 
 def _getNritems(obj):
     """Return the number of items in an objects' type"""
+    trace.print('_getNritems', repr(obj))
 #     logjbinspect(obj, 'obj', True)
     if isinstance(obj, _Signal):
         obj = obj._init
@@ -532,11 +543,14 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         self.kind = _kind.NORMAL
 
     def visit_BinOp(self, node):
+        trace.push(message='visit_BinOp')
         self.visit(node.left)
         self.visit(node.right)
         node.obj = int(-1)
+        trace.pop()
 
     def visit_BoolOp(self, node):
+        trace.push(message='visit_BoolOp')
         for n in node.values:
             self.visit(n)
         for n in node.values:
@@ -544,6 +558,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                 self.raiseError(
                     node, _error.NotSupported, "non-boolean argument in logical operator '{}'".format(n.obj))
         node.obj = bool()
+        trace.pop()
 
     def visit_UnaryOp(self, node):
         self.visit(node.operand)
@@ -557,6 +572,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             node.obj = int(-1)
 
     def visit_Attribute(self, node):
+        trace.push(message='visit_Attribute')
         if isinstance(node.ctx, ast.Store):
             self.setAttr(node)
         else:
@@ -568,15 +584,18 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                 if isinstance(obj, _Signal) and isinstance(obj._init, myhdl.modbv):
                     if not obj._init._hasFullRange():
                         self.raiseError(node, _error.ModbvRange, n)
+        trace.pop()
 
     def setAttr(self, node):
-        trace.print('setAttr', node, node.attr, node.value)
+        trace.push(message='setAttr')
+        trace.print(node, node.attr, node.value)
         if node.attr != 'next':
             self.raiseError(node, _error.NotSupported, "attribute assignment, forgotten '.next'?")
         self.tree.kind = _kind.TASK
         # self.access = _access.OUTPUT
         self.visit(node.value)
         # self.access = _access.INPUT
+        trace.pop()
 
     def getAttr(self, node):
         trace.push(None, 'getAttr')
@@ -588,7 +607,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                 raise AssertionError("attribute target: %s" % n)
 
         obj = node.value.obj
-#         print('_analyze: _AnalyzeVisitor: getAttr:', repr(obj), node.attr)
+#         trace.print('_analyze: _AnalyzeVisitor: getAttr:', repr(obj), node.attr)
         if isinstance(obj, _Signal):
             trace.print(repr(obj), node.attr)
             if node.attr == 'posedge':
@@ -645,7 +664,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
 #         # 7jun16 jb
 #         if isinstance(obj, tuple):
 #             node.obj = getattr(obj, node.attr)
-#             print(node.obj)
+#             trace.print(node.obj)
 
         else:
             # assume it is an indexed class
@@ -658,7 +677,8 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         trace.pop()
 
     def visit_Assign(self, node):
-        trace.print('_AnalyzeVisitor visit_Assign', node)
+        trace.push(message='_AnalyzeVisitor visit_Assign')
+        trace.print(node)
         target, value = node.targets[0], node.value
         self.access = _access.OUTPUT
 #         trace.push(None, 'rhs')
@@ -705,6 +725,8 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         else:
             self.visit(value)
 
+        trace.pop()
+
     def visit_AugAssign(self, node):
         # declare node as an rhs for type inference optimization
         node.isRhs = True
@@ -718,7 +740,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
 
     def visit_Call(self, node):
         trace.push(None, 'visit_Call')
-        #         print('node.args', node.args, self.access)
+        trace.print('node.args', node.args, self.access)
         self.visit(node.func)
         f = self.getObj(node.func)
         node.obj = None
@@ -727,13 +749,13 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             self.visit_Print(node)
             return
 
-#         print('setting self.access to UNKNOWN - 1')
+#         trace.print('setting self.access to UNKNOWN - 1')
         self.access = _access.UNKNOWN
         for arg in node.args:
             self.visit(arg)
         for kw in node.keywords:
             self.visit(kw)
-#         print('setting self.access to INPUT - 1')
+#         trace.print('setting self.access to INPUT - 1')
         self.access = _access.INPUT
         argsAreInputs = True
         if type(f) is type and issubclass(f, myhdl.intbv):
@@ -741,7 +763,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         elif f is myhdl.concat:
             node.obj = self.getVal(node)
         elif f is len:
-            #             print('setting self.access to UNKNOWN - 2')
+            #             trace.print('setting self.access to UNKNOWN - 2')
             #             self.access = _access.UNKNOWN #6jun16 jb
             node.obj = int(0)  # XXX
         elif f is bool:
@@ -767,6 +789,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             argsAreInputs = False
             tree = _makeAST(f)
             fname = f.__name__
+            trace.print(fname)
 #             tree.name = _Label(fname)
             tree.name = fname
             tree.symdict = f.__globals__.copy()
@@ -853,7 +876,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             trace.pop()
         else:
             debug_info = [e for e in ast.iter_fields(node.func)]
-            raise AssertionError("Unexpected callable %s" % str(debug_info))
+            raise AssertionError("Unexpected callable %s, you probably have use a non convertible math-function?" % str(debug_info))
         if argsAreInputs:
             for arg in node.args:
                 self.visit(arg)
@@ -935,42 +958,63 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
     def visit_If(self, node):
         if node.ignore:
             return
+        trace.push(message='visit_If')
         for test, suite in node.tests:
             self.visit(test)
             self.refStack.push()
             self.visitList(suite)
             self.refStack.pop()
         if node.else_:
+            trace.push(message='node.else_')
             self.refStack.push()
             self.visitList(node.else_)
             self.refStack.pop()
+            trace.pop()
         # check whether the if can be mapped to a (parallel) case
         node.isCase = node.isFullCase = False
         test1 = node.tests[0][0]
         if not hasattr(test1, 'case'):
+            trace.pop()
             return
         var1, item1 = test1.case
         # don't infer a case if there's no elsif test
         if not node.tests[1:]:
+            trace.pop()
             return
         choices = set()
         choices.add(item1)
 
         for test, suite in node.tests[1:]:
             if not hasattr(test, 'case'):
+                trace.pop()
                 return
             var, item = test.case
             if var.id != var1.id or type(item) is not type(item1):
+                trace.pop()
                 return
             if item in choices:
+                trace.pop()
                 return
             choices.add(item)
+        # we got here, so it must be a state machine?
+        # or at least a ROM
         node.isCase = True
         node.caseVar = var1
         node.caseItem = item1
-        if node.else_ or (len(choices) == _getNritems(var1.obj)):
+        trace.print(len(choices))
+        for ch in choices:
+            trace.print(ch)
             # if (len(choices) == _getNritems(var1.obj)) or node.else_  :
+        if node.else_:
             node.isFullCase = True
+        elif (len(choices) == _getNritems(var1.obj)):
+            node.isFullCase = True
+        else:
+            # emit a warning
+            pass
+        trace.print('IsCase: {}, IsFullCase: {}'.format(node.isCase, node.isFullCase))
+        
+        trace.pop()
 
     def visit_IfExp(self, node):
         self.visit(node.test)
@@ -1086,6 +1130,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
 
         elif n in self.tree.symdict:
             node.obj = self.tree.symdict[n]
+            trace.print('symdict', n, repr(node.obj), _isMem(node.obj), self.access)
             if _isTupleOfInts(node.obj):
                 node.obj = _Rom(node.obj)
                 self.tree.hasRom = True
@@ -1112,7 +1157,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             if n in self.tree.nonlocaldict:
                 # hack: put nonlocal intbv's in the vardict
                 self.tree.vardict[n] = node.obj
-            trace.print('symdict', n, repr(node.obj), _isMem(node.obj), self.access)
+                trace.print('hack: put nonlocal intbv\'s in the vardict', node.obj)
 
         elif n in builtins.__dict__:
             node.obj = builtins.__dict__[n]
@@ -1194,9 +1239,11 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             self.accessIndex(node)
 
     def accessSlice(self, node):
-        trace.print('accessSlice', node)
+        trace.push(message='accessSlice')
+        trace.print(repr(node))
         self.visit(node.value)
         node.obj = self.getObj(node.value)
+        trace.print(repr(node), repr(node.obj))
         self.access = _access.INPUT
         lower, upper = node.slice.lower, node.slice.upper
         if lower:
@@ -1223,8 +1270,10 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             else:
                 rightind = node.obj.shape[0]
             node.obj = node.obj[leftind:rightind]
+        trace.pop()
 
     def accessIndex(self, node):
+        trace.print('accessIndex', self.access)
         self.visit(node.value)
         self.access = _access.INPUT
         self.visit(node.slice.value)
@@ -1318,6 +1367,10 @@ class _AnalyzeBlockVisitor(_AnalyzeVisitor):
         self.refStack.pop()
 
     def visit_Module(self, node):
+        trace.push(message='visit_Module')
+        trace.print(node.body)
+        for t in node.body:
+            trace.print(t.name)
         self.generic_visit(node)
         for n in self.tree.outputs:
             s = self.tree.sigdict[n]
@@ -1327,6 +1380,8 @@ class _AnalyzeBlockVisitor(_AnalyzeVisitor):
         for n in self.tree.inputs:
             s = self.tree.sigdict[n]
             s._markRead()
+        trace.print('Closing.')
+        trace.pop()
 
     def visit_Return(self, node):
         # ## value should be None

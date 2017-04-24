@@ -50,16 +50,18 @@ _profileFunc = None
 
 class _error:
     pass
+
+
 _error.NoInstances = "No instances found"
 _error.InconsistentHierarchy = "Inconsistent hierarchy - are all instances returned ?"
-_error.InconsistentToplevel = "Inconsistent top level %s for %s - should be 1"
+_error.InconsistentToplevel = "Inconsistent top level %s for %s - should be 1 (are you missing an '@always[_comb | _seq]' decorator?)"
 
 
 class _Instance(object):
     __slots__ = ['level', 'obj', 'subs', 'sigdict',
                  'memdict', 'name', 'func', 'argdict', 'objdict']
 
-    def __init__(self, level, obj, subs, sigdict, memdict, func, argdict, objdict=None):
+    def __init__(self, level, obj, subs, sigdict, memdict, func, argdict, objdict=None, name=None):
         self.level = level
         self.obj = obj
         self.subs = subs
@@ -69,6 +71,7 @@ class _Instance(object):
         self.argdict = argdict
         if objdict:
             self.objdict = objdict
+        self.name = name
 
     def __repr__(self):
         #         lines = ['_Instance\n\tlevel: {}'.format(self.level)]
@@ -78,8 +81,9 @@ class _Instance(object):
         #                 sublines.append('\t\t{}'.format(item))
         #             lines.extend( '\{}'.format(sublines))
 
-        return '_Instance\n\t{}\n\t{}\n\t{}\n\t{}\n\t{}\n\t{}\n\t{}' \
-            .format(self.level, self.obj, self.subs, self.sigdict, self.memdict, self.func, self.argdict)
+        return '_Instance\n\tname:{}\n\tlevel: {}\n\tobj: {}\n\tsubs: {}\n\tsigdict: {}\n\tmemdict: {}\n\tfunc: {}\n\targdict: {}' \
+            .format(self.name, self.level, self.obj, self.subs, self.sigdict, self.memdict, self.func, self.argdict)
+
 
 _memInfoMap = collections.OrderedDict()  # {}
 
@@ -90,7 +94,7 @@ class _MemInfo(object):
 
     def __init__(self, mem, levels, sizes, totalelements, element):
         self.mem = mem
-#         print('_MemInfo', repr(mem))
+#         trace.print('_MemInfo', repr(mem))
         self.name = None
         self.depth = totalelements
         self.elObj = element
@@ -103,7 +107,8 @@ class _MemInfo(object):
         self.usagecount = 1
 
     def __repr__(self):
-        return "_MemInfo: {}, {} of {}". format(self.name, self.depth, repr(self.elObj))
+        return "_MemInfo: {}, {} of {}, used: {}, driven: {}, read: {}".format(self.name, self.depth,
+                                                                               repr(self.elObj), self._used, self._driven, self._read)
 
     # support for the 'driven' attribute
     @property
@@ -129,13 +134,14 @@ def _getMemInfo(mem):
 def _makeMemInfo(mem, levels, sizes, totalelements, element):
     key = id(mem)
     if key not in _memInfoMap:
-        #         print( '_makeMemInfo', key, mem, levels, sizes, totalelements, element )
+        #         trace.print( '_makeMemInfo', key, mem, levels, sizes, totalelements, element )
         _memInfoMap[key] = _MemInfo(mem, levels, sizes, totalelements, element)
     return _memInfoMap[key]
 
 
 def _isMem(mem):
     return id(mem) in _memInfoMap
+
 
 _userCodeMap = {'verilog': {},
                 'vhdl': {}
@@ -285,7 +291,7 @@ class _HierExtr(object):
             ''' a local (recursive) subroutine '''
             names[id(obj)] = name
             absnames[id(obj)] = '{}_{}'.format(top, name)
-#             print('{}_{}'.format(top, name))
+#             trace.print('{}_{}'.format(top, name))
             if isinstance(obj, (tuple, list)):
                 for i, item in enumerate(obj):
                     _nDname(top, '{}{}'.format(name, i), item)
@@ -307,6 +313,9 @@ class _HierExtr(object):
         _profileFunc = self.extractor
         sys.setprofile(_profileFunc)
         _top = dut(*args, **kwargs)
+        trace.push(message='_HierExtr')
+        for tt in _top:
+            trace.print(tt)
         sys.setprofile(None)
         if not hierarchy:
             raise ExtractHierarchyError(_error.NoInstances)
@@ -325,7 +334,7 @@ class _HierExtr(object):
             raise ExtractHierarchyError(
                 _error.InconsistentToplevel % (top_inst.level, name))
         for inst in hierarchy:
-            #             print(repr(inst))
+            #             trace.print(repr(inst))
             obj, subs = inst.obj, inst.subs
             if id(obj) not in names:
                 raise ExtractHierarchyError(_error.InconsistentHierarchy)
@@ -345,6 +354,7 @@ class _HierExtr(object):
                 self.level += 1
 
         elif event == "return":
+            trace.push(False, '_HierExtr: return')
             funcname = frame.f_code.co_name
             func = frame.f_globals.get(funcname)
             if func is None:
@@ -407,13 +417,14 @@ class _HierExtr(object):
                         # #                             if not n in cellvars:
                         # #                                 continue
                         if isinstance(v, _Signal):
-                            #                             print('_HierExtr {} Signal {} {}'.format(self.level, n, repr(v)))
+                            trace.print('level {} Signal {} {}, used: {}, driven: {}, read: {}'.format(self.level, n, repr(v),
+                                                                                                       v._used, v._driven, v._read))
                             sigdict[n] = v
                             if n in cellvars:
                                 v._markUsed()
 
                         elif isinstance(v, list):
-                            #                             print('_HierExtr {} list {} {}'.format(self.level, n, v))
+                            trace.print('level {} list {} {}'.format(self.level, n, v))
                             if len(v) > 0:
                                 levels, sizes, totalelements, element = m1Dinfo(v)
                                 if isinstance(element, (_Signal, Array, StructType)):
@@ -421,25 +432,28 @@ class _HierExtr(object):
                                     memdict[n] = m
                                     if n in cellvars:
                                         m._used = True
-                                if isinstance(element, (Array)):
-                                    if isinstance(v[0], list):
-                                        raise ValueError('don\'t handle nested lists', repr(v))
-                                    else:
-                                        # instantiate every element separately
-                                        for i, a in enumerate(v):
-                                            m = _makeMemInfo(a, len(a.shape), a.shape, a.size, element)
-                                            m.name = n + '({})'.format(str(i))
-                                            memdict[m.name] = m
-                                            trace.print(n, v, m, m.driven)
-                                            if m.name in cellvars:
-                                                m._used = True
+
+                                    if isinstance(element, (Array)):
+                                        if isinstance(v[0], list):
+                                            raise ValueError('don\'t handle nested lists', repr(v))
+                                        else:
+                                            # instantiate every element separately
+                                            for i, a in enumerate(v):
+                                                m = _makeMemInfo(a, len(a.shape), a.shape, a.size, element)
+                                                m.name = n + '({})'.format(str(i))
+                                                memdict[m.name] = m
+                                                trace.print('\t', m.name, m)
+#                                                 for item in m.mem:
+#                                                     trace.print('\t', m._driven)
+                                                if m.name in cellvars:
+                                                    m._used = True
 #                                 else:
-#                                     print(repr(element))
+#                                     trace.print(repr(element))
 
                         elif isinstance(v, Array):
                             # only enter 'top' Arrays, i.e. not Arrays that are
                             # a member of StructType(s)
-                            #                             print('_HierExtr {} Array {} {}'.format(self.level, n, repr(v)))
+                            trace.print('level {} Array {} {}'.format(self.level, n, repr(v)))
                             if '.' not in n:
                                 # we have all information handy in the Array
                                 # object
@@ -447,10 +461,10 @@ class _HierExtr(object):
                                 memdict[n] = m
                                 if n in cellvars:
                                     m._used = True
-                                    m._driven = v.driven
+#                                     m._driven = v.driven
 
                         elif isinstance(v, StructType):
-                            #                             print('_HierExtr {} StructType {} {}'.format(self.level, n, v))
+                            trace.print('_HierExtr {} StructType {} {}'.format(self.level, n, v))
                             # only enter 'top' StructTypes, i.e. not the nested
                             # StructType(s)
                             if '.' not in n:
@@ -471,13 +485,14 @@ class _HierExtr(object):
                             if elt is sub:
                                 subs.append((n, sub))
 
-                    inst = _Instance(self.level, arg, subs, sigdict, memdict, func, argdict)
+                    inst = _Instance(self.level, arg, subs, sigdict, memdict, func, argdict, funcname)
                     self.hierarchy.append(inst)
 
                 self.level -= 1
 
             if funcname in self.skipNames:
                 self.skip -= 1
+            trace.pop()
 
 
 def _inferArgs(arg):

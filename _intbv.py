@@ -43,8 +43,7 @@ class intbv(object):
                     _nrbits = len(bin(min))
                 else:
                     # make sure there is a leading zero bit in positive numbers
-                    _nrbits = builtins.max(
-                        len(bin(max - 1)) + 1, len(bin(min)))
+                    _nrbits = builtins.max(len(bin(max - 1)) + 1, len(bin(min)))
 
         if isinstance(val, integer_types):
             self._val = val
@@ -92,8 +91,8 @@ class intbv(object):
                                  (repr(sig), self._val, hex(self._val), self._max, hex(self._max)))
         if self._min is not None:
             if self._val < self._min:
-                raise ValueError("intbv value %s (%s) < minimum %s (%s)" %
-                                 (self._val, hex(self._val), self._min, hex(self._min)))
+                raise ValueError("%s: intbv value %s (%s) < minimum %s (%s)" %
+                                 (repr(sig), self._val, hex(self._val), self._min, hex(self._min)))
 
     def _hasFullRange(self):
         min, max = self._min, self._max

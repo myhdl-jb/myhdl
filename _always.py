@@ -26,7 +26,7 @@ from types import FunctionType
 from myhdl import AlwaysError
 from myhdl._util import _isGenFunc, _makeAST
 from myhdl._delay import delay
-from myhdl._Signal import _Signal, _WaiterList, posedge, negedge
+from myhdl._Signal import _Signal, _WaiterList
 from myhdl._Waiter import _Waiter, _SignalWaiter, _SignalTupleWaiter, \
     _DelayWaiter, _EdgeWaiter, _EdgeTupleWaiter
 from myhdl._instance import _Instantiator
@@ -34,6 +34,8 @@ from myhdl._instance import _Instantiator
 
 class _error:
     pass
+
+
 _error.DecArgType = "decorator argument should be a Signal, edge, or delay"
 _error.ArgType = "decorated object should be a classic (non-generator) function"
 _error.NrOfArgs = "decorated function should not have arguments"

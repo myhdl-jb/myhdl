@@ -46,7 +46,7 @@ class _SigNameVisitor(ast.NodeVisitor):
             #             print('visit_Name, lost {}'.format(id))
             return
         s = self.symdict[id]
-        if isinstance(s, (_Signal, intbv)) or _isListOfSigs(s) or isinstance(s, Array):
+        if isinstance(s, (_Signal, intbv)) or _isListOfSigs(s) or isinstance(s, (Array, StructType)):
             #             print(repr(s), self.context)
             if self.context in ('input', 'output', 'inout'):
                 self.results[self.context].add(id)
