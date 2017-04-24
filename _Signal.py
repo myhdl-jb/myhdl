@@ -33,7 +33,7 @@ from inspect import currentframe, getouterframes
 from copy import copy, deepcopy
 import operator
 
-from myhdl._compat import integer_types, long
+from myhdl._compat import integer_types, string_types, long
 from myhdl import _simulator as sim
 from myhdl._simulator import _signals, _siglist, _futureEvents, now
 from myhdl._intbv import intbv
@@ -41,10 +41,9 @@ from myhdl._bin import bin
 # from myhdl._enum import EnumItemType
 
 
-
 _schedule = _futureEvents.append
 
-   
+
 def _isListOfSigs(obj):
     """ Check if obj is a non-empty list of signals. """
     if isinstance(obj, list) and len(obj) > 0:
@@ -54,8 +53,8 @@ def _isListOfSigs(obj):
         return True
     else:
         return False
-     
-       
+
+
 class _WaiterList(list):
 
     def purge(self):
@@ -64,18 +63,25 @@ class _WaiterList(list):
 
 
 class _PosedgeWaiterList(_WaiterList):
+
     def __init__(self, sig):
         self.sig = sig
+
     def _toVerilog(self):
         return "posedge %s" % self.sig._name
+
     def _toVHDL(self):
         return "rising_edge(%s)" % self.sig._name
-    
+
+
 class _NegedgeWaiterList(_WaiterList):
+
     def __init__(self, sig):
         self.sig = sig
+
     def _toVerilog(self):
         return "negedge %s" % self.sig._name
+
     def _toVHDL(self):
         return "falling_edge(%s)" % self.sig._name
 
@@ -84,11 +90,14 @@ def posedge(sig):
     """ Return a posedge trigger object """
     return sig.posedge
 
+
 def negedge(sig):
     """ Return a negedge trigger object """
     return sig.negedge
 
 # signal factory function
+
+
 def Signal(val=None, delay=None):
     """ Return a new _Signal (default or delay 0) or DelayedSignal """
     if delay is not None:
@@ -97,7 +106,8 @@ def Signal(val=None, delay=None):
         return _DelayedSignal(val, delay)
     else:
         return _Signal(val)
-    
+
+
 class _Signal(object):
 
     """ _Signal class.
@@ -112,11 +122,10 @@ class _Signal(object):
                  '_eventWaiters', '_posedgeWaiters', '_negedgeWaiters',
                  '_code', '_tracing', '_nrbits', '_checkVal',
                  '_setNextVal', '_copyVal2Next', '_printVcd',
-                 '_driven' ,'_read', '_name', '_used', '_inList',
+                 '_driven', '_read', '_name', '_used', '_inList',
                  '_waiter', 'toVHDL', 'toVerilog', '_slicesigs',
-                 '_suppresswarning'
-                )
-
+                 '_suppresswarning', '_namelevel'
+                 )
 
     def __init__(self, val=None):
         """ Construct a signal.
@@ -124,11 +133,13 @@ class _Signal(object):
         val -- initial value
 
         """
+#         print('Signal', repr(val))
         self._init = deepcopy(val)
         self._val = deepcopy(val)
         self._next = deepcopy(val)
         self._min = self._max = None
         self._name = self._read = self._driven = None
+        self._namelevel = -1
         self._used = False
         self._inList = False
         self._nrbits = 0
@@ -189,7 +200,7 @@ class _Signal(object):
             self._type = type(val)
             if isinstance(val, EnumItemType):
                 self._setNextVal = self._setNextNonmutable
-                #let's print it in hex or decimal?
+                # let's print it in hex or decimal?
                 self._printVcd = self._printVcdEnum
             else:
                 self._setNextVal = self._setNextMutable
@@ -248,8 +259,8 @@ class _Signal(object):
     # support for the 'next' attribute
     @property
     def next(self):
-#        if self._next is self._val:
-#            self._next = deepcopy(self._val)
+        #        if self._next is self._val:
+        #            self._next = deepcopy(self._val)
         _siglist.append(self)
         return self._next
 
@@ -286,8 +297,9 @@ class _Signal(object):
 
     @driven.setter
     def driven(self, val):
-        if not val  in ("reg", "wire", True):
-            raise ValueError('Expected value "reg", "wire", or True, got "%s"' % val)
+        if not val in ("reg", "wire", True):
+            raise ValueError(
+                'Expected value "reg", "wire", or True, got "%s"' % val)
         self._driven = val
 
     # support for the 'read' attribute
@@ -297,7 +309,7 @@ class _Signal(object):
 
     @read.setter
     def read(self, val):
-        if not val in (True, ):
+        if not val in (True,):
             raise ValueError('Expected value True, got "%s"' % val)
         self._markRead()
 
@@ -313,7 +325,8 @@ class _Signal(object):
         if isinstance(val, intbv):
             val = val._val
         if not val in (0, 1):
-            raise ValueError("Expected boolean value, got %s (%s)" % (repr(val), type(val)))
+            raise ValueError(
+                "Expected boolean value, got %s (%s)" % (repr(val), type(val)))
         self._next = val
 
     def _setNextInt(self, val):
@@ -324,12 +337,18 @@ class _Signal(object):
         self._next = val
 
     def _setNextIntbv(self, val):
-        if isinstance(val, intbv):
-            val = val._val
-        elif not isinstance(val, integer_types):
+        if isinstance(val, integer_types):
+            lval = val
+        elif isinstance(val, intbv):
+            lval = val._val
+        elif isinstance(val, string_types):
+            mval = val.replace('_', '')
+            lval = long(mval, 2)
+#         elif not isinstance(val, integer_types):
+        else:
             raise TypeError("Expected int or intbv, got %s" % type(val))
-        self._next._val = val
-        self._next._handleBounds()
+        self._next._val = lval
+        self._next._handleBounds(self)
 
     def _setNextNonmutable(self, val):
         if not isinstance(val, self._type):
@@ -362,29 +381,27 @@ class _Signal(object):
 
     def _printVcdVec(self):
         if self._val is None:
-            print("b%s %s" % ('z'*self._nrbits, self._code), file=sim._tf)
+            print("b%s %s" % ('z' * self._nrbits, self._code), file=sim._tf)
         else:
-            print("b%s %s" % (bin(self._val, self._nrbits), self._code), file=sim._tf)
+            print("b%s %s" %
+                  (bin(self._val, self._nrbits), self._code), file=sim._tf)
 
     ### use call interface for shadow signals ###
-    def __call__(self, left = None, right=None, signed = False):
+    def __call__(self, left=None, right=None, signed=False):
         if left is None:
-            s = _CloneSignal( self )
+            s = _CloneSignal(self)
         else:
             if right is None:
-                s = _IndexSignal( self, left )
+                s = _IndexSignal(self, left)
             else:
                 s = _SliceSignal(self, left, right, signed)
         self._slicesigs.append(s)
         return s
 
-
     ### operators for which delegation to current value is appropriate ###
-        
+
     def __hash__(self):
         raise TypeError("Signals are unhashable")
-        
-    
 
     def __bool__(self):
         return bool(self._val)
@@ -400,7 +417,7 @@ class _Signal(object):
 
     def __getitem__(self, key):
         return self._val[key]
-        
+
     # integer-like methods
 
     def __add__(self, other):
@@ -408,14 +425,16 @@ class _Signal(object):
             return self._val + other._val
         else:
             return self._val + other
+
     def __radd__(self, other):
         return other + self._val
-    
+
     def __sub__(self, other):
         if isinstance(other, _Signal):
             return self._val - other._val
         else:
             return self._val - other
+
     def __rsub__(self, other):
         return other - self._val
 
@@ -424,6 +443,7 @@ class _Signal(object):
             return self._val * other._val
         else:
             return self._val * other
+
     def __rmul__(self, other):
         return other * self._val
 
@@ -432,32 +452,36 @@ class _Signal(object):
             return self._val / other._val
         else:
             return self._val / other
+
     def __rtruediv__(self, other):
         return other / self._val
-    
+
     def __floordiv__(self, other):
         if isinstance(other, _Signal):
             return self._val // other._val
         else:
             return self._val // other
+
     def __rfloordiv__(self, other):
-        return other //  self._val
-    
+        return other // self._val
+
     def __mod__(self, other):
         if isinstance(other, _Signal):
             return self._val % other._val
         else:
             return self._val % other
+
     def __rmod__(self, other):
         return other % self._val
 
     # XXX divmod
-    
+
     def __pow__(self, other):
         if isinstance(other, _Signal):
             return self._val ** other._val
         else:
             return self._val ** other
+
     def __rpow__(self, other):
         return other ** self._val
 
@@ -466,22 +490,25 @@ class _Signal(object):
             return self._val << other._val
         else:
             return self._val << other
+
     def __rlshift__(self, other):
         return other << self._val
-            
+
     def __rshift__(self, other):
         if isinstance(other, _Signal):
             return self._val >> other._val
         else:
             return self._val >> other
+
     def __rrshift__(self, other):
         return other >> self._val
-           
+
     def __and__(self, other):
         if isinstance(other, _Signal):
             return self._val & other._val
         else:
             return self._val & other
+
     def __rand__(self, other):
         return other & self._val
 
@@ -490,17 +517,19 @@ class _Signal(object):
             return self._val | other._val
         else:
             return self._val | other
+
     def __ror__(self, other):
         return other | self._val
-    
+
     def __xor__(self, other):
         if isinstance(other, _Signal):
             return self._val ^ other._val
         else:
             return self._val ^ other
+
     def __rxor__(self, other):
         return other ^ self._val
-    
+
     def __neg__(self):
         return -self._val
 
@@ -512,49 +541,53 @@ class _Signal(object):
 
     def __invert__(self):
         return ~self._val
-        
+
     # conversions
-    
+
     def __int__(self):
         return int(self._val)
-        
+
     def __long__(self):
         return long(self._val)
 
     def __float__(self):
         return float(self._val)
-    
+
     def __oct__(self):
         return oct(self._val)
-    
+
     def __hex__(self):
         return hex(self._val)
-    
+
     def __index__(self):
         return int(self._val)
 
-
     # comparisons
     def __eq__(self, other):
-        return self.val == other 
+        return self.val == other
+
     def __ne__(self, other):
-        return self.val != other 
+        return self.val != other
+
     def __lt__(self, other):
         return self.val < other
+
     def __le__(self, other):
         return self.val <= other
+
     def __gt__(self, other):
         return self.val > other
+
     def __ge__(self, other):
         return self.val >= other
-
 
     # method lookup delegation
     def __getattr__(self, attr):
         return getattr(self._val, attr)
 
-    # representation 
+    # representation
     def __str__(self):
+        #         print('Signal.__str__()', end='')
         if self._name:
             return self._name
         else:
@@ -562,9 +595,9 @@ class _Signal(object):
 
     def __repr__(self):
         if self._name:
-            return "{}: Signal({})".format( self._name, repr(self._val))
+            return "{}: Signal({})".format(self._name, repr(self._val))
         else:
-            return "Signal({})".format( repr(self._val))
+            return "Signal({})".format(repr(self._val))
 
     def _toVerilog(self):
         return self._name
@@ -577,11 +610,9 @@ class _Signal(object):
     __ior__ = __iand__ = __ixor__ = __irshift__ = __ilshift__ = _augm
     __itruediv__ = __ifloordiv__ = _augm
 
-
     # index and slice assignment not supported
     def __setitem__(self, key, val):
         raise TypeError("Signal object doesn't support item/slice assignment")
-
 
     # continues assignment support
     def assign(self, sig):
@@ -604,36 +635,53 @@ class _Signal(object):
         self.toVHDL = toVHDL
         self.toVerilog = toVerilog
 
+    # copy, deepcopy hooks
+    def __copy__(self):
+        return Signal(self._val)
+
+    def __deepcopy__(self, visit):
+        return Signal(self._val)
 
     # jb's (debatable?) extensions
     def copy(self, extendbits=None):
+        #         print(extendbits)
         if extendbits is None:
             return Signal(self._val)
         else:
             if isinstance(self._val, bool):
                 raise ValueError('Cannot extendbits of \'bool\' Signal')
+            elif isinstance(extendbits, _Signal):
+                #                 print('caught', repr(extendbits), len(extendbits))
+                if self._min < 0:
+                    return Signal(intbv(0, min=int(self._val._min * (2 ** len(extendbits))),
+                                        max=int(self._val._max * (2 ** len(extendbits)))))
+                else:
+                    return Signal(intbv(0, min=int(extendbits._val._min * (2 ** len(self))),
+                                        max=int(extendbits._val._max * (2 ** len(self)))))
+
+            elif isinstance(extendbits, intbv):
+                #                 print('caught', repr(extendbits), len(extendbits))
+                if self._min < 0:
+                    return Signal(intbv(0, min=int(self._val._min * (2 ** len(extendbits))),
+                                        max=int(self._val._max * (2 ** len(extendbits)))))
+                else:
+                    return Signal(intbv(0, min=int(extendbits._min * (2 ** len(self))),
+                                        max=int(extendbits._max * (2 ** len(self)))))
+
+            elif isinstance(extendbits, int):
+                return Signal(intbv(0, min=int(self._val._min * (2 ** extendbits)),
+                                    max=int(self._val._max * (2 ** extendbits))))
             else:
-                # intbv
-                return Signal(intbv(0, min = int(self._val._min * (2**extendbits)), 
-                                    max = int(self._val._max * (2**extendbits))))
-
-    # copy, deepcopy hooks
-    def __copy__(self):
-        return Signal( self._val )
-
-
-    def __deepcopy__(self, visit):
-        return Signal( self._val )
-
+                raise ValueError('Signal.copy(extendbits=None) expects \'int\' or \'Signal(intbv())\' as argument ')
 
     def suppressWarning(self):
         self._suppresswarning = True
-        pass
-    
+
+
 class _DelayedSignal(_Signal):
-    
+
     __slots__ = ('_nextZ', '_delay', '_timeStamp',
-                )
+                 )
 
     def __init__(self, val=None, delay=1):
         """ Construct a new DelayedSignal.
@@ -669,7 +717,7 @@ class _DelayedSignal(_Signal):
             self._val = copy(next)
             if self._tracing:
                 self._printVcd()
-            return waiters            
+            return waiters
         else:
             return []
 
@@ -682,12 +730,14 @@ class _DelayedSignal(_Signal):
     def delay(self, delay):
         self._delay = delay
 
-        
+
 class _SignalWrap(object):
+
     def __init__(self, sig, next, timeStamp):
         self.sig = sig
         self.next = next
         self.timeStamp = timeStamp
+
     def apply(self):
         return self.sig._apply(self.next, self.timeStamp)
 

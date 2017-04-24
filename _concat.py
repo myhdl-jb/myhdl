@@ -26,11 +26,12 @@ from myhdl._compat import integer_types
 from myhdl._intbv import intbv
 from myhdl._Signal import _Signal
 from myhdl._compat import long
-
+from myhdl._structured import Array
 
 
 def concat(base, *args):
 
+    largs = args
     if isinstance(base, intbv):
         basewidth = base._nrbits
         val = base._val
@@ -49,12 +50,17 @@ def concat(base, *args):
     elif isinstance(base, str):
         basewidth = len(base)
         val = long(base, 2)
+    elif isinstance(base, Array):
+        basewidth = 0
+        val = 0
+        largs = [arg for arg in base]
+        print(largs)
     else:
         raise TypeError("concat: inappropriate first argument type: %s" \
                         % type(base))
 
     width = 0
-    for i, arg in enumerate(args):
+    for i, arg in enumerate(largs):
         if isinstance(arg, intbv):
             w = arg._nrbits
             v = arg._val
@@ -74,10 +80,10 @@ def concat(base, *args):
             raise TypeError("concat: inappropriate argument type: %s" \
                             % type(arg))
         if not w:
-            raise TypeError("concat: arg on pos %d should have length" % (i+1))
+            raise TypeError("concat: arg on pos %d should have length" % (i + 1))
         width += w
-        val = val << w | v & (long(1) << w)-1
-        
+        val = val << w | v & (long(1) << w) - 1
+
     if basewidth:
         return intbv(val, _nrbits=basewidth + width)
     else:

@@ -31,21 +31,22 @@ from types import GeneratorType
 from myhdl import Cosimulation, StopSimulation, _SuspendSimulation
 from myhdl import _simulator, SimulationError
 from myhdl._simulator import _signals, _siglist, _futureEvents
-from myhdl._Waiter import _Waiter, _inferWaiter, _SignalWaiter,_SignalTupleWaiter
+from myhdl._Waiter import _Waiter, _inferWaiter, _SignalWaiter, _SignalTupleWaiter
 from myhdl._util import _flatten, _printExcInfo
 from myhdl._instance import _Instantiator
 from myhdl._ShadowSignal import _ShadowSignal
 
 
-
 schedule = _futureEvents.append
+
 
 class _error:
     pass
-_error.ArgType = "Inappriopriate argument type"
+_error.ArgType = "Inappropriate argument type"
 _error.MultipleCosim = "Only a single cosimulator argument allowed"
 _error.DuplicatedArg = "Duplicated argument"
-            
+
+
 class Simulation(object):
 
     """ Simulation class.
@@ -62,6 +63,7 @@ class Simulation(object):
                  a nested sequence of generators.
 
         """
+#         print(_siglist)
         _simulator._time = 0
         arglist = _flatten(*args)
         self._waiters, self._cosim = _makeWaiters(arglist)
@@ -70,8 +72,8 @@ class Simulation(object):
         self._finished = False
         del _futureEvents[:]
         del _siglist[:]
-        
-        
+#         print(_siglist)
+
     def _finalize(self):
         cosim = self._cosim
         if cosim:
@@ -86,20 +88,19 @@ class Simulation(object):
         for s in _signals:
             s._clear()
         self._finished = True
-            
-        
+
     def runc(self, duration=0, quiet=0):
         simrunc.run(sim=self, duration=duration, quiet=quiet)
 
-
     def run(self, duration=None, quiet=0):
-
         """ Run the simulation for some duration.
 
         duration -- specified simulation duration (default: forever)
         quiet -- don't print StopSimulation messages (default: off)
 
         """
+
+#         print(_siglist)
 
         # If the simulation is already finished, raise StopSimulation immediately
         # From this point it will propagate to the caller, that can catch it.
@@ -122,6 +123,8 @@ class Simulation(object):
         _append = waiters.append
         _extend = waiters.extend
 
+#         print(_siglist)
+#         print(waiters)
         while 1:
             try:
 
@@ -131,6 +134,7 @@ class Simulation(object):
 
                 while waiters:
                     waiter = _pop()
+#                     print(repr(waiter))
                     try:
                         waiter.next(waiters, actives, exc)
                     except StopIteration:
@@ -196,17 +200,18 @@ class Simulation(object):
                     tracefile.flush()
                 # if the exception came from a yield, make sure we can resume
                 if exc and e is exc[0]:
-                    pass # don't finalize
+                    pass  # don't finalize
                 else:
                     self._finalize()
                 # now reraise the exepction
                 raise
-                
+
 
 def _makeWaiters(arglist):
     waiters = []
     ids = set()
     cosim = None
+#     print('_makeWaiters', arglist)
     for arg in arglist:
         if isinstance(arg, GeneratorType):
             waiters.append(_inferWaiter(arg))
@@ -231,4 +236,3 @@ def _makeWaiters(arglist):
         if hasattr(sig, '_waiter'):
             waiters.append(sig._waiter)
     return waiters, cosim
-        

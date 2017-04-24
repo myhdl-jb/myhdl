@@ -82,6 +82,7 @@ def always_seq(edge, reset):
         if func.__code__.co_argcount > 0:
             raise AlwaysSeqError(_error.NrOfArgs)
         return _AlwaysSeq(func, edge, reset)
+
     return _always_seq_decorator
 
 

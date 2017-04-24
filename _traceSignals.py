@@ -24,7 +24,6 @@ from __future__ import absolute_import
 from __future__ import print_function
 
 
-
 import sys
 # from inspect import currentframe, getouterframes
 import time
@@ -42,6 +41,7 @@ from myhdl._structured import Array, StructType
 
 _tracing = 0
 _profileFunc = None
+
 
 class _error:
     pass
@@ -65,13 +65,14 @@ class _TraceSignalsClass(object):
     def __call__(self, dut, *args, **kwargs):
         global _tracing
         if _tracing:
-            return dut(*args, **kwargs) # skip
+            return dut(*args, **kwargs)  # skip
         else:
             # clean start
             sys.setprofile(None)
         from myhdl.conversion import _toVerilog
         if _toVerilog._converting:
-            raise TraceSignalsError("Cannot use traceSignals while converting to Verilog")
+            raise TraceSignalsError(
+                "Cannot use traceSignals while converting to Verilog")
         if not callable(dut):
             raise TraceSignalsError(_error.ArgType, "got %s" % type(dut))
         if _simulator._tracing:
@@ -111,11 +112,13 @@ for i in range(33, 127):
     _codechars += chr(i)
 _mod = len(_codechars)
 
+
 def _genNameCode():
     n = 0
     while 1:
         yield _namecode(n)
         n += 1
+
 
 def _namecode(n):
     q, r = divmod(n, _mod)
@@ -124,6 +127,7 @@ def _namecode(n):
         q, r = divmod(q, _mod)
         code = _codechars[r] + code
     return code
+
 
 def _writeVcdHeader(f, timescale):
     print("$date", file=f)
@@ -137,6 +141,7 @@ def _writeVcdHeader(f, timescale):
     print("$end", file=f)
     print(file=f)
 
+
 def _getSval(s):
     if isinstance(s, _TristateSignal):
         sval = s._orival
@@ -147,17 +152,17 @@ def _getSval(s):
     return sval
 
 
-
-
 def _writeVcdSigs(f, hierarchy, tracelists):
 
     # local functions
     # can access local variables ...
     # which can be dangerous too ...
-    def _writeVcdMemSig(s, signame, siglist, memindex , f):
+    def _writeVcdMemSig(s, signame, siglist, memindex, f):
+        #         print(s, signame, memindex)
         sval = _getSval(s)
         if sval is None:
-            raise ValueError("%s of module %s has no initial value" % (signame, name))
+            raise ValueError(
+                "%s of module %s has no initial value" % (signame, name))
         if hasattr(s, '_tracing'):
             if not s._tracing:
                 s._tracing = 1
@@ -166,47 +171,53 @@ def _writeVcdSigs(f, hierarchy, tracelists):
             w = s._nrbits
             if memindex is not None:
                 if w:
-                    print("$var reg %s %s %s(%i) $end" % (w, s._code, signame, memindex), file=f)
+                    print("$var reg %s %s %s(%i) $end" %
+                          (w, s._code, signame, memindex), file=f)
                 else:
-                    print("$var real 1 %s %s(%i) $end" % (s._code, signame, memindex), file=f)
+                    print("$var real 1 %s %s(%i) $end" %
+                          (s._code, signame, memindex), file=f)
             else:
                 if w:
-                    print("$var reg %s %s %s $end" % (w, s._code, signame), file=f)
+                    print("$var reg %s %s %s $end" %
+                          (w, s._code, signame), file=f)
                 else:
-                    print("$var real 1 %s %s $end" % (s._code, signame), file=f)
+                    print("$var real 1 %s %s $end" %
+                          (s._code, signame), file=f)
 
- 
-    def expandmemsigs( signame, mem, memindex , level = 0):
-        if isinstance(mem  , (list, Array)):
+    def expandmemsigs(signame, mem, memindex, level=0):
+        if isinstance(mem, (list, Array)):
+            assert len(mem), "empty list or Array: {}".format(signame)
             if isinstance(mem[0], (list, Array)):
                 for idx, mmm in enumerate(mem):
-                    nextname = '{}({})' .format( signame, idx)
-                    expandmemsigs(nextname, mmm, memindex , level + 1 )
+                    nextname = '{}({})' .format(signame, idx)
+                    expandmemsigs(nextname, mmm, memindex, level + 1)
             else:
                 # lowest (= last) level of m1D
                 # but the 'element' may be an interface ...
-                for idx, obj in enumerate( mem ):
+                for idx, obj in enumerate(mem):
                     if isinstance(obj, _Signal):
-                        _writeVcdMemSig(obj, signame, siglist, memindex , f)
+                        _writeVcdMemSig(obj, signame, siglist, memindex, f)
                         memindex += 1
                     elif isinstance(obj, StructType):
-                        print("$scope module {} $end" .format('{}.{}'.format( signame, idx)), file=f)
+                        print("$scope module {} $end" .format(
+                            '{}.{}'.format(signame, idx)), file=f)
                         nextname = '{}.{}'.format(signame, idx)
-                        expandmemsigs(nextname, obj, memindex , level + 1 )
+                        expandmemsigs(nextname, obj, memindex, level + 1)
                         print("$upscope $end", file=f)
 
         elif isinstance(mem, StructType):
-            vargs = vars( mem )
+            vargs = vars(mem)
             for key in vargs:
                 obj = vargs[key]
-                if isinstance( obj , _Signal):
-                    _writeVcdMemSig(obj, '{}.{}'.format( signame, key), siglist, None , f)
+                if isinstance(obj, _Signal):
+                    _writeVcdMemSig(
+                        obj, '{}.{}'.format(signame, key), siglist, None, f)
                 elif isinstance(obj, (Array, StructType)):
-                    print("$scope module {} $end" .format('{}.{}'.format( signame, key)), file=f)
+                    print("$scope module {} $end" .format(
+                        '{}.{}'.format(signame, key)), file=f)
                     nextname = '{}.{}'.format(signame, key)
-                    expandmemsigs(nextname, obj, memindex , level + 1 )
+                    expandmemsigs(nextname, obj, memindex, level + 1)
                     print("$upscope $end", file=f)
-
 
     curlevel = 0
     namegen = _genNameCode()
@@ -241,7 +252,8 @@ def _writeVcdSigs(f, hierarchy, tracelists):
         for n, s in sigdict.items():
             sval = _getSval(s)
             if sval is None:
-                raise ValueError("%s of module %s has no initial value" % (n, name))
+                raise ValueError(
+                    "%s of module %s has no initial value" % (n, name))
             if not s._tracing:
                 s._tracing = 1
                 s._code = next(namegen)
@@ -251,30 +263,32 @@ def _writeVcdSigs(f, hierarchy, tracelists):
             if w:
                 if not isinstance(sval, EnumItemType):
                     if w == 1:
-                        print( "$var reg 1 %s %s $end" % (s._code, n), file=f)
+                        print("$var reg 1 %s %s $end" % (s._code, n), file=f)
                     else:
-                            print( "$var reg %s %s %s $end" % (w, s._code, n), file=f)
+                        print("$var reg %s %s %s $end" %
+                              (w, s._code, n), file=f)
                 else:
                     # 18-04-2014 jb
                     # it is an enum, and as Impulse doesn't know the awkward 'real' representation yet, so let's 'degrade' it to a binary type
                     # 30-04-2014 jb
                     # Impulse now has a 'string'type
-                    print( "$var string %s %s %s $end" % (w, s._code, n), file=f)
-#                     print "30-04-2014 jb: Representing enum as string"  # leave a trace
+                    print("$var string %s %s %s $end" %
+                          (w, s._code, n), file=f)
+# print "30-04-2014 jb: Representing enum as string"  # leave a trace
             else:
                 print("$var real 1 %s %s $end" % (s._code, n), file=f)
         # Memory dump by Frederik Teichert, http://teichert-ing.de, date: 2011.03.28
         # The Value Change Dump standard doesn't support multidimensional arrays so
-        # all memories are flattened and renamed. ! There should be no need to, except for GTKwave?
+        # all memories are flattened and renamed. ! There should be no need to,
+        # except for GTKwave?
         if tracelists:
             for n in memdict.keys():
-#                 if memdict[n]._driven: # do not trace constants (yet)
-#                 print( n )
+                #                 if memdict[n]._driven: # do not trace constants (yet)
+                #                 print( n )
                 mem = memdict[n].mem
                 print("$scope module {} $end" .format(n), file=f)
-                expandmemsigs(n, mem , 0 )
+                expandmemsigs(n, mem, 0)
                 print("$upscope $end", file=f)
-
 
     for i in range(curlevel):
         print("$upscope $end", file=f)
@@ -282,18 +296,5 @@ def _writeVcdSigs(f, hierarchy, tracelists):
     print("$enddefinitions $end", file=f)
     print("$dumpvars", file=f)
     for s in siglist:
-        s._printVcd() # initial value
+        s._printVcd()  # initial value
     print("$end", file=f)
-            
-            
-        
-        
-
-
-    
-    
-
-            
-        
-    
-    
