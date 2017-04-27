@@ -398,8 +398,10 @@ class Array(object):
 
     # get
     def __getitem__(self, *args, **kwargs):
-        #         trace.print('__getitem__:', repr(self), args)
+        #         trace.print('__getitem__:', repr(self))
+        #         trace.print(args, repr(self._array))
         item = self._array.__getitem__(*args, **kwargs)
+#         trace.print('item:', repr(item))
         if isinstance(item, list):
             #             trace.print('{}: __getitem__ should never return a list?'.format(self._name))
             return Array(item, self)
@@ -408,7 +410,7 @@ class Array(object):
 
     def __getslice__(self, *args, **kwargs):
         sliver = self._array.__getslice__(*args, **kwargs)
-        trace.print('sliver', sliver)
+#         trace.print('sliver', sliver)
         if isinstance(sliver, list):
             return Array(sliver, self)
         else:
@@ -701,20 +703,23 @@ class Array(object):
 #                     trace.print('  ', a)
                 elif isinstance(a.element, StructType):
                     for i in range(a.shape[0]):
-                        a._array[i] = a.element.fromintbv(vector, _o)
-                        _o += len(a._dtype)
+                        a._array[i].fromintbv(vector, _o)
+                        trace.print(repr(a._array[i]))
+                        _o += a.element.nbits
 
             else:
                 for i in range(a.shape[0]):
                     _toA(a[i], _o)
         # this the start
-#         trace.print('Array.fromintbv(): start:', repr(self), str(self), self)
+        trace.push(message='Array.fromintbv')
+        trace.print('start:', repr(self), str(self), self)
         _toA(self, idx)
         self._isshadow = True
-#         trace.print('end:', repr(self), str(self), self)
+        trace.print('end:', repr(self), str(self), self)
+        trace.pop()
         # return 'self' to allow using in instantiation like:
         #    inst = Array((,), Signal(intbv(0)[w:])).fromintbv(v)
-        return self
+#         return self
 
     def toVHDL(self):
         ''' 
@@ -880,7 +885,8 @@ class StructType(object):
 
     def fromintbv(self, vector, idx=0):
         ''' split a (large) intbv into a StructType '''
-#         trace.print('StructType: fromintbv:\n\t{}\n\t{}'.format(repr(self), repr(vector)))
+        trace.push(message='StructType: fromintbv')
+        trace.print('start: {} {}'.format(repr(self), repr(vector)))
         if self.sequencelist is None:
             raise ValueError('Need a sequencelist to correctly assign StructType members\n{}'.format(repr(self)))
 
@@ -892,6 +898,7 @@ class StructType(object):
                         # take care of unsigned/signed
                         vars(self)[key] = vector(idx + obj._nrbits, idx)
                         idx += obj._nrbits
+                        trace.print(repr(vars(self)[key]))
                     else:
                         # a bool
                         vars(self)[key] = vector(idx)
@@ -913,7 +920,8 @@ class StructType(object):
                 else:
                     pass
         self._isshadow = True
-#         trace.print('\t', repr(self))
+        trace.print('end:', repr(self))
+        trace.pop()
 
     def toVHDL(self):
         ''' 
@@ -974,10 +982,12 @@ class StructType(object):
 
     def ref(self):
         ''' returns a condensed name representing the contents of the StructType, starting with the __class__ name'''
+        trace.print(repr(self))
         retval = 'r_{}'.format(self.__class__.__name__)
         # should be in order of the sequencelist, if any
         if self.sequencelist:
             for key in self.sequencelist:
+                trace.print(repr(key))
                 if hasattr(self, key):
                     obj = vars(self)[key]
                     if isinstance(obj, _Signal):

@@ -27,7 +27,7 @@ from __future__ import print_function
 import sys
 import math
 import os
-# import re
+import re
 
 import inspect
 from datetime import datetime
@@ -69,6 +69,14 @@ _shortversion = _version.replace('dev', '')
 _converting = 0
 _profileFunc = None
 _enumPortTypeSet = set()
+
+
+def natural_key(string_):
+    """
+        a helper routine to 'improve' the sort
+        See http://www.codinghorror.com/blog/archives/001018.html
+    """
+    return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', string_)]
 
 
 def _checkArgs(arglist):
@@ -945,6 +953,7 @@ def _writeSigDecls(f, intf, siglist, memlist):
 
 
 def sortalign(sl, sort=False, port=False):
+
     # align the colons
     maxpos = 0
     for l in sl:
@@ -992,7 +1001,7 @@ def sortalign(sl, sort=False, port=False):
 
     if sort:
         # sort the signals
-        return sorted(sl)
+        return sorted(sl, key=natural_key)
     else:
         return sl
 
@@ -2269,7 +2278,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 # access the dict object
 
             else:
-                self.raiseError(node, _error.UnsupportedType, "%s, %s" % (n, type(obj)))
+                self.raiseError(node, _error.UnsupportedType, "%s, %s, %s" % (n, type(obj), repr(obj)))
         else:
             raise AssertionError("name ref: %s" % n)
         self.write(s)
@@ -3171,13 +3180,15 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
     def __init__(self, tree):
         trace.print('_AnnotateTypesVisitor {}'.format(tree))
         self.tree = tree
+        trace.print(ast.dump(tree))
 
     def visit_FunctionDef(self, node):
-        trace.push(message='visit_FunctionDef {}'.format(node.name))
+        trace.push(message='visit_FunctionDef <{}>'.format(node.name))
+
         # don't visit arguments and decorators
         for stmt in node.body:
             self.visit(stmt)
-#         trace.print('Close.')
+        trace.print()
         trace.pop()
 
     # a placeholder to follow the AST
@@ -3327,7 +3338,8 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
         node.vhdOri = copy(node.vhd)
 
     def visit_Name(self, node):
-        trace.print('visit_Name {}'.format(node))
+        trace.push(message='visit_Name')
+        trace.print('{}'.format(node))
         # is a terminal
         if node.id in self.tree.vardict:
             node.obj = self.tree.vardict[node.id]
@@ -3338,6 +3350,7 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
         node.vhd = inferVhdlObj(node.starget[0] if hasattr(node, 'starget') else node.obj)
 #         node.vhd = inferVhdlObj(node.obj)
         node.vhdOri = copy(node.vhd)
+        trace.pop()
 
     def visit_BinOp(self, node):
         trace.push(message='visit_BinOp')
@@ -3480,6 +3493,7 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
 
     def accessSlice(self, node):
         trace.push(message='accessSlice')
+        trace.print(node.lineno)
         trace.print(node, repr(node.obj))
         self.generic_visit(node)
 #         trace.print(node, node.obj)
@@ -3539,7 +3553,8 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
 
     def accessIndex(self, node):
         trace.push(message='accessIndex')
-        trace.print('{}'.format(vars(node)))
+        trace.print(node.lineno)
+        trace.print('vars: {}'.format(vars(node)))
         if hasattr(node, 'starget'):
             trace.print('starget:', repr(node.starget))
         #         trace.print('accessIndex 1 {}'.format(node))
@@ -3556,7 +3571,10 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
             if isinstance(obj.element, StructType):
                 trace.print('accessIndex 2 {}'.format(node))
                 # there may be an attribute involved
-                node.vhd = inferVhdlObj(obj.element, node.starget[1])
+                if hasattr(node, 'starget'):
+                    node.vhd = inferVhdlObj(obj.element, node.starget[1])
+                else:
+                    node.vhd = inferVhdlObj(obj.element)
             else:
                 node.vhd = inferVhdlObj(obj.element)
 

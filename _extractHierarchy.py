@@ -337,7 +337,7 @@ class _HierExtr(object):
             #             trace.print(repr(inst))
             obj, subs = inst.obj, inst.subs
             if id(obj) not in names:
-                raise ExtractHierarchyError(_error.InconsistentHierarchy)
+                raise ExtractHierarchyError(_error.InconsistentHierarchy, '{}'.format(repr(obj)))
             inst.name = names[id(obj)]
             tn = absnames[id(obj)]
             for sn, so in subs:
