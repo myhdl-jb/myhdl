@@ -401,6 +401,7 @@ constantlist = []
 
 
 def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPorts, siglist, standard):
+    print('-- synthesis VHDL_2008\n\n', file=f)
     print("library IEEE;", file=f)
     print("\tuse IEEE.std_logic_1164.all;", file=f)
     print("\tuse IEEE.numeric_std.all;", file=f)
@@ -475,15 +476,15 @@ def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPor
                 else:
                     if port._driven:
                         if port._read:
-                            #                             if standard == '2008':
-                            #                                 pl.append("\n        %s : out %s%s;" %
-                            #                                           (portname, pt, r))
-                            #                             else:
-                            pl.append("\n\t\t%s : inout %s%s;" %
-                                      (portname, pt, r))
-                            if not isinstance(port, _TristateSignal):
-                                warnings.warn(
-                                    "%s: %s" % (_error.OutputPortRead, portname), category=ToVHDLWarning)
+                            if standard == '2008':
+                                pl.append("\n\t\t%s : out %s%s;" %
+                                          (portname, pt, r))
+                            else:
+                                pl.append("\n\t\t%s : inout %s%s;" %
+                                          (portname, pt, r))
+                                if not isinstance(port, _TristateSignal):
+                                    warnings.warn(
+                                        "%s: %s" % (_error.OutputPortRead, portname), category=ToVHDLWarning)
                         else:
                             pl.append("\n\t\t%s : out %s%s;" %
                                       (portname, pt, r))
@@ -1282,7 +1283,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         return 'b"%s"' % bin(item, len(var), True)
 
     def inferCast(self, vhd, ori):
-        trace.print('inferCast', repr(vhd), repr(ori), )
+        trace.print('inferCast', repr(vhd), repr(ori),)
         pre, suf = "", ""
         if isinstance(vhd, vhd_int):
             if isinstance(ori, vhd_array):
