@@ -475,15 +475,15 @@ def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPor
                 else:
                     if port._driven:
                         if port._read:
-                            #                             if standard == '2008':
-                            #                                 pl.append("\n        %s : out %s%s;" %
-                            #                                           (portname, pt, r))
-                            #                             else:
-                            pl.append("\n\t\t%s : inout %s%s;" %
-                                      (portname, pt, r))
-                            if not isinstance(port, _TristateSignal):
-                                warnings.warn(
-                                    "%s: %s" % (_error.OutputPortRead, portname), category=ToVHDLWarning)
+                            if standard == '2008':
+                                pl.append("\n\t\t%s : out %s%s;" %
+                                          (portname, pt, r))
+                            else:
+                                pl.append("\n\t\t%s : inout %s%s;" %
+                                          (portname, pt, r))
+                                if not isinstance(port, _TristateSignal):
+                                    warnings.warn(
+                                        "%s: %s" % (_error.OutputPortRead, portname), category=ToVHDLWarning)
                         else:
                             pl.append("\n\t\t%s : out %s%s;" %
                                       (portname, pt, r))
