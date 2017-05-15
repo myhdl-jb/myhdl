@@ -46,7 +46,7 @@ class _error(object):
     UnusedPort = "Port is not used"
     OutputPortRead = "Output port is read internally"
     Requirement = "Requirement violation"
-    UnboundLocal = "Local variable may be referenced before assignment (have forgotten a '.next'?)"
+    UnboundLocal = "Local variable may be referenced before assignment (or have forgotten a '.next'?)"
     TypeMismatch = "Type mismatch with earlier assignment"
     NrBitsMismatch = "Nr of bits mismatch with earlier assignment"
     IntbvBitWidth = "intbv object should have a bit width"

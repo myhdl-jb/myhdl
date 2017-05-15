@@ -389,7 +389,7 @@ def _writeCustomPackage(f, intf):
     sortedList = list(_enumPortTypeSet)
     sortedList.sort(key=lambda x: x._name)
     for t in sortedList:
-        print("    %s" % t._toVHDL(), file=f)
+        print("\t%s" % t._toVHDL(), file=f)
     print(file=f)
     print("end package pck_%s;" % intf.name, file=f)
     print(file=f)
@@ -592,7 +592,7 @@ def _writeConstants(f, memlist):
             continue
         # not driven, but _read
         # drill down into the list
-        cl.append("    constant {} : {} := ( {} );\n" .format(
+        cl.append("\tconstant {} : {} := ( {} );\n" .format(
             m.name, m._typedef, expandconstant(m.mem)))
         constantlist.append(m.name)
     for l in sortalign(cl, sort=True):
@@ -643,7 +643,7 @@ def expandarray(c):
         s = ''
         if isinstance(c[0], StructType):
             for i in range(size):
-                s = ''.join((s, '{}, '.format(c[i].initial())))
+                s = ''.join((s, '{}, '.format(c[i].initial('vhdl'))))
         elif isinstance(c[0]._val, bool):
             if size > 1:
                 for i in range(size):
@@ -743,7 +743,7 @@ def addstructuredtypedef(obj):
                 #                 trace.print(mobj.ref())
                 entries.append("\t\t{} : {};\n".format(key, mobj.ref()))  # ##
             elif isinstance(mobj, StructType):
-                #                 entries.append( "        {} : \\{}\\;\n".format(key, mobj.ref()))
+                #                 entries.append( "\t    {} : \\{}\\;\n".format(key, mobj.ref()))
                 entries.append("\t\t{} : {};\n".format(key, mobj.ref()))
 
         # align-format the contents
@@ -835,7 +835,7 @@ def _writeTypeDefs(f, memlist):
             for _, size in enumerate(reversed(m._sizes)):
                 o = basetype
                 basetype = 'a{}_{}'.format(size, o)
-                typedefs.add(basetype, o, "    type {} is array(0 to {}-1) of {};\n" .format(basetype, size, p))
+                typedefs.add(basetype, o, "\ttype {} is array(0 to {}-1) of {};\n" .format(basetype, size, p))
                 # next level if any
                 p = basetype
 
@@ -867,21 +867,21 @@ def _writeSigDecls(f, intf, siglist, memlist):
         if s._driven or s._read:
             if not toVHDL.no_initial_values:
                 if isinstance(s._val, bool):
-                    sl.append("    signal %s : %s%s := '%s';" %
+                    sl.append("\tsignal %s : %s%s := '%s';" %
                               (s._name, p, r, 1 if s._val else 0))
                 elif isinstance(s._val, intbv):
                     if s._val:
-                        sl.append("    signal %s : %s%s := b\"%s\";" %
+                        sl.append("\tsignal %s : %s%s := b\"%s\";" %
                                   (s._name, p, r, bin(s._val, s._nrbits, True)))
                     else:
                         # all zeros
                         sl.append(
-                            "    signal %s : %s%s := (others => '0');" % (s._name, p, r))
+                            "\tsignal %s : %s%s := (others => '0');" % (s._name, p, r))
                 elif isinstance(s._val, EnumItemType):
-                    sl.append("    signal %s : %s%s := %s;" %
+                    sl.append("\tsignal %s : %s%s := %s;" %
                               (s._name, p, r, s._val))
             else:
-                sl.append("    signal %s : %s%s;" % (s._name, p, r))
+                sl.append("\tsignal %s : %s%s;" % (s._name, p, r))
 
             if s._driven:
                 if not s._read and not isinstance(s, _TristateDriver):
@@ -913,10 +913,10 @@ def _writeSigDecls(f, intf, siglist, memlist):
         # left to process
         if isinstance(m.mem, Array):
             if m.mem._initialised or not toVHDL.no_initial_values:
-                sl.append("    signal {} : {} := ({});" .format(
+                sl.append("\tsignal {} : {} := ({});" .format(
                     m.name, m._typedef, expandarray(m.mem)))
             else:
-                sl.append("    signal {} : {};" .format(m.name, m._typedef))
+                sl.append("\tsignal {} : {};" .format(m.name, m._typedef))
         elif isinstance(m.mem, list):
             # assuming it is is a single list
             # try to shortcut the initialisation
@@ -930,21 +930,21 @@ def _writeSigDecls(f, intf, siglist, memlist):
             #                 else :
             #                     rval =  'to_unsigned( {}, {} )'.format( tval._val, tval._nrbits)
             #
-            #                 sl.append("    signal {} : {} := (others => {});" .format(m.name, m._typedef, rval))
+            #                 sl.append("\tsignal {} : {} := (others => {});" .format(m.name, m._typedef, rval))
             #             else:
                 # the full works
             if not toVHDL.no_initial_values:
-                sl.append("    signal {} : {} := ({});" .format(
+                sl.append("\tsignal {} : {} := ({});" .format(
                     m.name, m._typedef, expandarray(m.mem)))
             else:
-                sl.append("    signal {} : {};" .format(m.name, m._typedef))
+                sl.append("\tsignal {} : {};" .format(m.name, m._typedef))
 
         elif isinstance(m.mem, StructType):
             if not toVHDL.no_initial_values:
-                sl.append("    signal {} : {} := ({});" .format(
+                sl.append("\tsignal {} : {} := ({});" .format(
                     m.name, m._typedef, m.mem.initial('vhdl')))
             else:
-                sl.append("    signal {} : {};" .format(m.name, m._typedef))
+                sl.append("\tsignal {} : {};" .format(m.name, m._typedef))
         else:
             pass
 
@@ -1246,7 +1246,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.tree = tree
         self.buf = buf
         self.returnLabel = tree.name
-        self.ind = '    '
+        self.ind = '\t'
         self.SigAss = False
         self.isLhs = False
         self.labelStack = []
@@ -1427,10 +1427,12 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.writeDeclaration(obj, name, kind="variable")
 
     def indent(self):
-        self.ind += ' ' * 4
+        #         self.ind += ' ' * 4
+        self.ind += '\t'
 
     def dedent(self):
-        self.ind = self.ind[:-4]
+        #         self.ind = self.ind[:-4]
+        self.ind = self.ind[:-1]
 
     def visit_BinOp(self, node):
         trace.push(message='visit_BinOp')

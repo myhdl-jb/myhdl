@@ -30,7 +30,7 @@ from types import FunctionType, MethodType
 import re
 import ast
 from itertools import chain
-from collections import defaultdict, namedtuple
+from collections import defaultdict, namedtuple, OrderedDict
 
 import myhdl
 # from myhdl import *
@@ -155,14 +155,14 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
         if not m._used:
             continue
         # m is a m1D list
-        trace.print( "expanding", m.name)
+        trace.print("expanding", m.name)
         expandsignalnames(m.mem, m.name, 0, 0, openp, closep)
 
     return siglist, memlist
 
 
 def expandsignalnames(memobj, name, memindex, level, openp, closep):
-    trace.print( repr(memobj), name, memindex, level)
+    trace.print(repr(memobj), name, memindex, level)
     if isinstance(memobj, (list, Array)):
         if isinstance(memobj[0], (list, Array)):
             for i, mmm in enumerate(memobj):
@@ -214,7 +214,7 @@ def makesname(i, s, signame, elobj, openp, closep):
         if type(s.val) != type(elobj.val):
             raise ConversionError(_error.InconsistentType, s._name)
         if s._nrbits != elobj._nrbits:
-            raise ConversionError(_error.InconsistentBitWidth, '{} <> {}'.format( repr(s), repr(elobj)))
+            raise ConversionError(_error.InconsistentBitWidth, '{} <> {}'.format(repr(s), repr(elobj)))
 
 
 def _analyzeGens(top, absnames):
@@ -523,8 +523,8 @@ def _getNritems(obj):
 class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
 
     def __init__(self, tree):
-        tree.sigdict = {}
-        tree.vardict = {}
+        tree.sigdict = OrderedDict()  # {}
+        tree.vardict = OrderedDict()  # {}
         tree.inputs = set()
         tree.outputs = set()
         # hack for assigned mems
@@ -677,7 +677,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         trace.pop()
 
     def visit_Assign(self, node):
-        trace.push(message='_AnalyzeVisitor visit_Assign')
+        trace.push(message='visit_Assign')
         trace.print(node)
         target, value = node.targets[0], node.value
         self.access = _access.OUTPUT
@@ -1013,7 +1013,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             # emit a warning
             pass
         trace.print('IsCase: {}, IsFullCase: {}'.format(node.isCase, node.isFullCase))
-        
+
         trace.pop()
 
     def visit_IfExp(self, node):
@@ -1368,14 +1368,18 @@ class _AnalyzeBlockVisitor(_AnalyzeVisitor):
 
     def visit_Module(self, node):
         trace.push(message='visit_Module')
-        trace.print(node.body)
+        trace.print('node, node.body:', node, node.body)
         for t in node.body:
             trace.print(t.name)
         self.generic_visit(node)
         for n in self.tree.outputs:
             s = self.tree.sigdict[n]
+            trace.print('n, s:', repr(n), repr(s))
+            for item in self.tree.sigdict.keys():
+                trace.print(repr(item), repr(self.tree.sigdict[item]), id(self.tree.sigdict[item]))
             if s._driven:
-                self.raiseError(node, _error.SigMultipleDriven, n)
+                var2 = [x for x in globals().values() if id(x) == id(self.tree.sigdict[item])]
+                self.raiseError(node, _error.SigMultipleDriven, '{} {} <> {}'.format(n, self.tree.inputs, var2))
             s._driven = "reg"
         for n in self.tree.inputs:
             s = self.tree.sigdict[n]
@@ -1425,6 +1429,7 @@ class _AnalyzeAlwaysCombVisitor(_AnalyzeBlockVisitor):
     def visit_Module(self, node):
         _AnalyzeBlockVisitor.visit_Module(self, node)
         if self.tree.kind == _kind.SIMPLE_ALWAYS_COMB:
+            trace.print('_kind.SIMPLE_ALWAYS_COMB:', node, self.tree.outputs)
             for n in self.tree.outputs:
                 s = self.tree.sigdict[n]
                 s._driven = "wire"
