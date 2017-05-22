@@ -155,8 +155,9 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
         if not m._used:
             continue
         # m is a m1D list
-        trace.print("expanding", m.name)
+        trace.push(message="expanding {}".format(m.name))
         expandsignalnames(m.mem, m.name, 0, 0, openp, closep)
+        trace.pop()
 
     return siglist, memlist
 
@@ -649,6 +650,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                 _enumTypeSet.add(obj)
 
         elif isinstance(obj, Array):
+            trace.print(repr(obj))
             node.obj = obj.element
 
         elif isinstance(obj, StructType):
@@ -1095,10 +1097,10 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             node.obj = sig = self.tree.sigdict[n]
             # mark shadow signal as driven only when they are seen somewhere
             if isinstance(sig, _ShadowSignal):
-                sig._driven = 'wire'
+                sig.driven = 'wire'
             # mark tristate signal as driven if its driver is seen somewhere
             if isinstance(sig, _TristateDriver):
-                sig._sig._driven = 'wire'
+                sig._sig.driven = 'wire'
             if not isinstance(sig, _Signal):
                 pass
             else:
@@ -1137,22 +1139,25 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
 
             elif _isMem(node.obj):
                 m = _getMemInfo(node.obj)
+                trace.print(repr(m))
                 if self.access == _access.INPUT:
                     m._read = True
+                    node.obj._read = True
                 elif self.access == _access.OUTPUT:
-                    m._driven = 'reg'
+                    m.driven = 'reg'
                     self.tree.outmems.add(n)
                 elif self.access == _access.UNKNOWN:
                     pass
                 else:
                     assert False, "unexpected mem access %s %s" % (n, self.access)
                 self.tree.hasLos = True
+                trace.print(repr(m))
 
             elif isinstance(node.obj, int):
                 node.value = node.obj
 
-#             else:
-#                 trace.print('unhandled', n, repr(node.obj))
+            else:
+                trace.print('symdict unhandled', n, repr(node.obj))
 
             if n in self.tree.nonlocaldict:
                 # hack: put nonlocal intbv's in the vardict
@@ -1377,10 +1382,10 @@ class _AnalyzeBlockVisitor(_AnalyzeVisitor):
             trace.print('n, s:', repr(n), repr(s))
             for item in self.tree.sigdict.keys():
                 trace.print(repr(item), repr(self.tree.sigdict[item]), id(self.tree.sigdict[item]))
-            if s._driven:
+            if s.driven:
                 var2 = [x for x in globals().values() if id(x) == id(self.tree.sigdict[item])]
                 self.raiseError(node, _error.SigMultipleDriven, '{} {} <> {}'.format(n, self.tree.inputs, var2))
-            s._driven = "reg"
+            s.driven = "reg"
         for n in self.tree.inputs:
             s = self.tree.sigdict[n]
             s._markRead()
@@ -1432,10 +1437,10 @@ class _AnalyzeAlwaysCombVisitor(_AnalyzeBlockVisitor):
             trace.print('_kind.SIMPLE_ALWAYS_COMB:', node, self.tree.outputs)
             for n in self.tree.outputs:
                 s = self.tree.sigdict[n]
-                s._driven = "wire"
+                s.driven = "wire"
             for n in self.tree.outmems:
                 m = _getMemInfo(self.tree.symdict[n])
-                m._driven = "wire"
+                m.driven = "wire"
 
 
 class _AnalyzeAlwaysSeqVisitor(_AnalyzeBlockVisitor):
@@ -1545,29 +1550,33 @@ def isboundmethod(m):
     return ismethod(m) and m.__self__ is not None
 
 
-def _analyzeTopFunc(top_inst, func, *args, **kwargs):
-    # a local function to drill down to the last interface
-    def expandinterface(v, name, obj):
-        for attr, attrobj in vars(obj).items():
-            if isinstance(attrobj, _Signal):
-                #                     signame = attrobj._name
-                #                     if not signame:
-                #                         signame = name + '_' + attr
-                #                         attrobj._name = signame
-                #                     signame = name + '_' + attr
-                signame = name + attr
-                attrobj._name = signame
-                # check if already in
+# a local function to drill down to the last interface
+def expandinterface(v, name, obj):
+    trace.print(v, name, obj)
+    for attr, attrobj in vars(obj).items():
+        if isinstance(attrobj, _Signal):
+            #                     signame = attrobj._name
+            #                     if not signame:
+            #                         signame = name + '_' + attr
+            #                         attrobj._name = signame
+            #                     signame = name + '_' + attr
+            signame = name + attr
+            attrobj._name = signame
+            # check if already in
 #                     if v.fullargdict.has_key(signame):
 #                         raise ConversionError(_error.NameCollision, signame)
-                v.argdict[signame] = attrobj
-                v.argnames.append(signame)
-            elif isinstance(attrobj, myhdl.EnumType):
-                pass
-            elif hasattr(attrobj, '__dict__'):
-                        # can assume is yet another interface ...
-                expandinterface(v, name + '_' + attr, attrobj)
+            v.argdict[signame] = attrobj
+            v.argnames.append(signame)
+        elif isinstance(attrobj, myhdl.EnumType):
+            pass
+        elif hasattr(attrobj, '__dict__'):
+                    # can assume is yet another interface ...
+            expandinterface(v, name + '_' + attr, attrobj)
 
+
+def _analyzeTopFunc(top_inst, func, *args, **kwargs):
+
+    trace.print('_analyzeTopFunc')
     tree = _makeAST(func)
     v = _AnalyzeTopFuncVisitor(func, tree, *args, **kwargs)
     v.visit(tree)
@@ -1580,8 +1589,8 @@ def _analyzeTopFunc(top_inst, func, *args, **kwargs):
 
     # now expand the interface objects
     for name, obj in objs:
-        if isinstance(obj, StructType):
-            # do not expand StructTypes
+        if isinstance(obj, (StructType, Array)):
+            # do not expand StructTypes or Arrays
             # toVHDL will handle this
             v.argdict[name] = obj
             v.argnames.append(name)

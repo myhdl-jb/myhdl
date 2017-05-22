@@ -107,8 +107,12 @@ class _MemInfo(object):
         self.usagecount = 1
 
     def __repr__(self):
-        return "_MemInfo: {}, {} of {}, used: {}, driven: {}, read: {}".format(self.name, self.depth,
-                                                                               repr(self.elObj), self._used, self._driven, self._read)
+        rval = "_MemInfo {} of {}, used: {}, driven: {}, read: {}".format(self.depth, repr(self.elObj), self._used,
+                                                                          self._driven, self._read)
+        if self.name is not None:
+            return self.name + ' ' + rval
+        else:
+            return rval
 
     # support for the 'driven' attribute
     @property
@@ -418,7 +422,7 @@ class _HierExtr(object):
                         # #                                 continue
                         if isinstance(v, _Signal):
                             trace.print('level {} Signal {} {}, used: {}, driven: {}, read: {}'.format(self.level, n, repr(v),
-                                                                                                       v._used, v._driven, v._read))
+                                                                                                       v._used, v.driven, v._read))
                             sigdict[n] = v
                             if n in cellvars:
                                 v._markUsed()
@@ -444,16 +448,16 @@ class _HierExtr(object):
                                                 memdict[m.name] = m
                                                 trace.print('\t', m.name, m)
 #                                                 for item in m.mem:
-#                                                     trace.print('\t', m._driven)
+#                                                     trace.print('\t', m.driven)
                                                 if m.name in cellvars:
                                                     m._used = True
 #                                 else:
 #                                     trace.print(repr(element))
 
                         elif isinstance(v, Array):
+                            trace.print('level {} Array {} {}'.format(self.level, n, repr(v)))
                             # only enter 'top' Arrays, i.e. not Arrays that are
                             # a member of StructType(s)
-                            trace.print('level {} Array {} {}'.format(self.level, n, repr(v)))
                             if '.' not in n:
                                 # we have all information handy in the Array
                                 # object
@@ -461,7 +465,7 @@ class _HierExtr(object):
                                 memdict[n] = m
                                 if n in cellvars:
                                     m._used = True
-#                                     m._driven = v.driven
+                                    m._driven = v.driven
 
                         elif isinstance(v, StructType):
                             trace.print('_HierExtr {} StructType {} {}'.format(self.level, n, v))

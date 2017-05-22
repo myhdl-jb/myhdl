@@ -76,7 +76,7 @@ class _SliceSignal(_ShadowSignal):
         self._waiter = _SignalWaiter(gen)
         # 6jun16 jb
         sig._read = True
-        self._driven = 'wire'
+#         self._driven = 'wire'
 
     def __repr__(self):
         if self._name:
@@ -177,7 +177,7 @@ class _CloneSignal(_ShadowSignal):
 #         self._right = None
         gen = self._genfuncClone()
         self._waiter = _SignalWaiter(gen)
-        self._driven = 'wire'
+#         self._driven = 'wire'
         # as we are a shadow signal we are reading the provider signal
         self._sig._read = True
 
@@ -257,7 +257,7 @@ class ConcatSignal(_ShadowSignal):
         self._initval = val
         ini = intbv(val)[nrbits:]
         _ShadowSignal.__init__(self, ini)
-        self._driven = 'wire'
+#         self._driven = 'wire'
         gen = self.genfunc()
         self._waiter = _SignalTupleWaiter(gen)
 
@@ -423,6 +423,7 @@ class ConcatSignal(_ShadowSignal):
 class BusContentionWarning(UserWarning):
     pass
 
+
 warnings.filterwarnings('always', r".*", BusContentionWarning)
 
 # def Tristate(val, delay=None):
@@ -511,4 +512,4 @@ class _TristateDriver(_Signal):
             self._setNextVal(val)
         _siglist.append(self)
 
-from myhdl._structured import Array, StructType
+# from myhdl._structured import Array, StructType

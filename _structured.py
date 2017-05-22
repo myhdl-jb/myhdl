@@ -353,18 +353,19 @@ class Array(object):
         else:
             return '[array init: tbd]'
 
-    # representation
-    def __str__(self):
-        if self._name:
-            return self._name
-        else:
-            return repr(self._array)
+#     # representation
+#     def __str__(self):
+#         if self._name:
+#             return self._name
+#         else:
+#             return repr(self._array)
 
     def __repr__(self):
+        rval = "Array{} of {}". format(self.shape, repr(self.element))
         if self._name:
-            return "{} Array{} of {}". format(self._name, self.shape, repr(self.element))
+            return self._name + ': ' + rval
         else:
-            return "Array{} of {}". format(self.shape, repr(self.element))
+            return rval
 
     def ref(self):
         ''' return a nice reference name for the object '''
@@ -801,6 +802,7 @@ class StructType(object):
         '''
         self._nrbits = 0
         self.sequencelist = None
+        self.reversedirections = []
         self._driven = False
         self._read = False
         self._name = None
@@ -946,9 +948,13 @@ class StructType(object):
 
     def __repr__(self):
         if self._isshadow:
-            return 'Shadow of StructType {} {}'.format(self.__class__.__name__, vars(self))
+            rval = 'Shadow of StructType {} {}'.format(self.__class__.__name__, vars(self))
         else:
-            return 'StructType {} {}'.format(self.__class__.__name__, vars(self))
+            rval = 'StructType {} {}'.format(self.__class__.__name__, vars(self))
+        if self._name is None:
+            return rval
+        else:
+            return self._name + ': ' + rval
 
     def copy(self):
         ''' return a new object '''
@@ -967,7 +973,7 @@ class StructType(object):
                 # List of anything
                 # presumably Signal, Array, StructType
                 # but anything goes?
-                if isinstance(obj[0], (_Signal, Array, StructType)):
+                if len(obj) and isinstance(obj[0], (_Signal, Array, StructType)):
                     siglist = []
                     for sig in obj:
                         siglist.append(sig.copy())
@@ -1043,10 +1049,13 @@ class StructType(object):
                 dst = refs[key]
                 if isinstance(dst, _Signal):
                     src = vargs[key]
-                    if isinstance(src, _Signal):
-                        dst._setNextVal(src._val)
+                    if key in self.reversedirections:
+                        src._setNextVal(dst._val)
                     else:
-                        dst._setNextVal(src)
+                        if isinstance(src, _Signal):
+                            dst._setNextVal(src._val)
+                        else:
+                            dst._setNextVal(src)
                 elif isinstance(dst, (Array, StructType)):
                     dst._setNextVal(vargs[key])
         elif isinstance(val, tuple):

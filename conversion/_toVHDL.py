@@ -111,6 +111,49 @@ def _makeDoc(doc, indent=''):
     return doc
 
 
+class _typedef(object):
+
+    def __init__(self):
+        self.names = []
+        self.basetypes = []
+        self.VHDLcodes = []
+
+    def clear(self):
+        self.names = []
+        self.basetypes = []
+        self.VHDLcodes = []
+
+    def add(self, name, basetypes, VHDLcode):
+        if name not in self.names:
+            self.names.append(name)
+            self.basetypes.append(basetypes)
+            self.VHDLcodes.append(VHDLcode)
+
+    def write(self, lines):
+        # first 'sort'
+        nrtd = len(self.names)
+        idx = 0
+        while idx < nrtd:
+            bt = self.basetypes[idx]
+            if bt is not None:
+                if bt in self.names[idx + 1:]:
+                    btidx = self.names.index(bt)
+                    self.names.insert(idx, self.names.pop(btidx))
+                    self.basetypes.insert(idx, self.basetypes.pop(btidx))
+                    self.VHDLcodes.insert(idx, self.VHDLcodes.pop(btidx))
+                    # stay at this index and test whether this name now has a
+                    # 'predecessor'
+                else:
+                    idx += 1
+
+            else:
+                idx += 1
+
+        # then write
+        for i, l in enumerate(self.VHDLcodes):
+            lines.append(l)
+
+
 class _ToVHDLConvertor(object):
 
     __slots__ = ("name",
@@ -124,7 +167,8 @@ class _ToVHDLConvertor(object):
                  "use_clauses",
                  "architecture",
                  "std_logic_ports",
-                 "no_initial_values"
+                 "no_initial_values",
+                 "structured_ports"
                  )
 
     def __init__(self):
@@ -140,6 +184,7 @@ class _ToVHDLConvertor(object):
         self.architecture = "MyHDL"
         self.std_logic_ports = False
         self.no_initial_values = False
+        self.structured_ports = False
 
     def __call__(self, func, *args, **kwargs):
         global _converting
@@ -176,12 +221,6 @@ class _ToVHDLConvertor(object):
         trace.print()
         trace.pop()
 
-#         trace.push(message='h.absnames')
-#         for item in h.absnames:
-#             trace.print('\t', item)
-#         trace.print()
-#         trace.pop()
-
         if self.directory is None:
             directory = ''
         else:
@@ -191,10 +230,10 @@ class _ToVHDLConvertor(object):
 
         vpath = os.path.join(directory, name + ".vhd")
         tpath = os.path.join(directory, name + ".tmp")
-        vfile = open(tpath, 'w')
+        tfile = open(tpath, 'w')
         ppath = os.path.join(directory, "pck_myhdl_%s.vhd" % _shortversion)
         pfile = None
-#        # write MyHDL package always during development, as it may change
+        # write MyHDL package always during development, as it may change
 #        pfile = None
 #        if not os.path.isfile(ppath):
 #            pfile = open(ppath, 'w')
@@ -207,13 +246,16 @@ class _ToVHDLConvertor(object):
         _enumPortTypeSet.clear()
 
         # 2 Analyse Generators
+        trace.push(message='Analyse Generators')
         arglist = _flatten(h.top)
         _checkArgs(arglist)
         genlist = _analyzeGens(arglist, h.absnames)
         trace.print('Analysed Generators')
         trace.print('genlist', genlist)
+        trace.pop()
 
         # 3 analyse the signals
+        trace.push(message='Analyse Signals')
         siglist, memlist = _analyzeSigs(h.hierarchy, hdl='VHDL')
 #         trace.print('siglist', siglist)
 #         trace.print('memlist', memlist)
@@ -224,27 +266,35 @@ class _ToVHDLConvertor(object):
         trace.print('memlist')
         for mem in memlist:
             trace.print('\t', repr(mem))
+        trace.pop()
 
         # 4 Annotate the types
-        trace.push(None, message='_annotateTypes')
+        trace.push(message='_annotateTypes')
         _annotateTypes(genlist)
         trace.pop()
 
         # 5 infer interface
+        trace.push(message='Infer Interface')
         top_inst = h.hierarchy[0]
         intf = _analyzeTopFunc(top_inst, func, *args, **kwargs)
         intf.name = name
+        trace.pop()
         # sanity checks on interface
+        trace.push(message='for portname in intf.argnames: ')
+        portlist = []
         for portname in intf.argnames:
             port = intf.argdict[portname]
+            trace.print('{} read {}, driven {}'.format(repr(port), port._read, port.driven))
             if isinstance(port, StructType):
+                pass
+            elif isinstance(port, Array):
                 pass
             else:
                 if port._name is None:
                     raise ToVHDLError(_error.ShadowingSignal, portname)
 #             if port._inList:
 #                 raise ToVHDLError(_error.PortInList, portname)
-            # add enum types to port-related set
+                # add enum types to port-related set
                 if isinstance(port._val, EnumItemType):
                     obj = port._val._type
                     if obj in _enumTypeSet:
@@ -252,6 +302,8 @@ class _ToVHDLConvertor(object):
                         _enumPortTypeSet.add(obj)
                     else:
                         assert obj in _enumPortTypeSet
+
+        trace.pop()
 
         doc = _makeDoc(inspect.getdoc(func))
 
@@ -269,49 +321,80 @@ class _ToVHDLConvertor(object):
             print(_package, file=pfile)
             pfile.close()
 
+        packagedefs.clear()
         # from here start writing to the output file
-        _writeFileHeader(vfile, vpath)
+        fileheaderlines = _writeFileHeader(vpath)
         if needPck:
-            _writeCustomPackage(vfile, intf)
-        _writeModuleHeader(vfile, intf, needPck, lib, arch,
-                           useClauses, doc, stdLogicPorts, siglist, self.standard)
-        _writeTypeDefs(vfile, memlist)
-        _writeFuncDecls(vfile)
-        _writeConstants(vfile, memlist)
-        _writeSigDecls(vfile, intf, siglist, memlist)
-        _writeCompDecls(vfile, compDecls)
-#         trace.print('genlist', genlist)
-        # gthe converted 'generators'
-        _convertGens(genlist, siglist, memlist, vfile)
-        _writeModuleFooter(vfile, arch)
+            fileheaderlines.append(_writeCustomPackage(intf))
 
-        vfile.close()
+        headerlines = _writeModuleHeader(intf, needPck, lib, useClauses)
+        entitylines = _writeEntity(intf, needPck, lib, arch, useClauses, doc,
+                                   stdLogicPorts, siglist, self.standard,
+                                   self.structured_ports, portlist)
+#         for port in portlist:
+#             print(port)
+#         for m in memlist:
+#             print(m)
+#             if m.mem in portlist:
+#                 print('gotcha')
+
+        updatedrivenread(memlist, portlist)
+        typedefines = _writeTypeDefs(memlist)
+        funclines = _writeFuncDecls()
+        constantlines = _writeConstants(memlist)
+        siglines = _writeSigDecls(intf, siglist, memlist)
+        vlines = []
+        _writeCompDecls(vlines, compDecls)
+        # the converted 'generators'
+        _convertGens(genlist, siglist, memlist, vlines)
+        _writeModuleFooter(vlines, arch)
+
+        tfile.write(''.join(fileheaderlines))
+        # add local package if required
+        if len(packagedefs.names):
+            packagelines = []
+            pkgstart = 'library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\npackage pkg_{} is\n\n'.format(name)
+            packagelines.append(pkgstart)
+            packagedefs.write(packagelines)
+            pkgend = '\nend pkg_{};\n\n'.format(name)
+            packagelines.append(pkgend)
+            tfile.write(''.join(packagelines))
+
+            usepkg = '\tuse {}.pkg_{}.all;\n\n'.format(lib, name)
+            headerlines.append(usepkg)
+
+        sl = []
+        for line in siglines:
+            print(line, end='')
+            sl.append(line.replace(name + '_', ''))
+        for line in sl:
+            print(line, end='')
+        tfile.write(''.join(headerlines + entitylines + typedefines + funclines + constantlines))
+        tfile.write(''.join(sortalign(sl, sort=True) + vlines))
+        tfile.close()
         # tbfile.close()
 
         # postedit the .vhd file
-        dummyprefixes = [name + '_', name.lower() + '_']
-#         trace.print(dummyprefixes)
-#         if len( suppressedWarnings ) > 0:
+        dummyprefixes = [name + '_',
+                         name.lower() + '_']
         fi = open(tpath, 'r')
         fo = open(vpath, 'w')
         # edit ...
         # read the temporary VHDL file
+        # splitting into lines
         filines = fi.read().split('\n')
-        # split into lines
         for line in filines:
             skip = False
             for sw in suppressedWarnings:
                 if sw._name in line:
                     skip = True
                     break
+            # selectively write the lines to the output
             if not skip:
                 # ideally should do this while giving the names
-                #                 line = re.sub('\b{}\{}'.format(dummyprefixes[0], dummyprefixes[1]), '', line)
                 for dp in dummyprefixes:
                     line = line.replace(dp, '')
                 fo.write(line + '\n')
-
-        # selectively write the lines to the output
 
         fi.close()
         os.remove(tpath)
@@ -357,6 +440,11 @@ class _ToVHDLConvertor(object):
 # expose as global object
 toVHDL = _ToVHDLConvertor()
 
+constwires = []
+typedefs = _typedef()
+packagedefs = _typedef()
+functiondefs = []
+
 myhdl_header = """\
 -- File: $filename
 -- Generated by MyHDL $version
@@ -368,31 +456,33 @@ myhdl_header = """\
 """
 
 
-def _writeFileHeader(f, fn):
+def _writeFileHeader(fn):
+    lines = []
     mvars = dict(filename=fn,
                  version=myhdl.__version__,
                  date=datetime.today().ctime()
                  )
     if toVHDL.header:
-        print(string.Template(toVHDL.header).substitute(mvars), file=f)
+        lines.append(string.Template(toVHDL.header).substitute(mvars))
     if not toVHDL.no_myhdl_header:
-        print(string.Template(myhdl_header).substitute(mvars), file=f)
-    print(file=f)
+        lines.append(string.Template(myhdl_header).substitute(mvars))
+    lines.append('\n')
+    lines.append('-- synthesis VHDL_2008\n\n')
+
+    return lines
 
 
-def _writeCustomPackage(f, intf):
-    print(file=f)
-    print("package pck_%s is" % intf.name, file=f)
-    print(file=f)
-    print("attribute enum_encoding: string;", file=f)
-    print(file=f)
+def _writeCustomPackage(intf):
+    lines = []
+    lines.append("\npackage pck_%s is\n" % intf.name)
+    lines.append("attribute enum_encoding: string;\n")
     sortedList = list(_enumPortTypeSet)
     sortedList.sort(key=lambda x: x._name)
     for t in sortedList:
-        print("\t%s" % t._toVHDL(), file=f)
-    print(file=f)
-    print("end package pck_%s;" % intf.name, file=f)
-    print(file=f)
+        lines.append("\t%s" % t._toVHDL())
+    lines.append('\n')
+    lines.append("end package pck_%s;\n" % intf.name)
+    return lines
 
 
 portConversions = []
@@ -400,40 +490,64 @@ suppressedWarnings = []
 constantlist = []
 
 
-def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPorts, siglist, standard):
-    print('-- synthesis VHDL_2008\n\n', file=f)
-    print("library IEEE;", file=f)
-    print("\tuse IEEE.std_logic_1164.all;", file=f)
-    print("\tuse IEEE.numeric_std.all;", file=f)
-    print("\tuse std.textio.all;", file=f)
-    print(file=f)
+def _writeModuleHeader(intf, needPck, lib, useClauses):
+    lines = []
+    trace.push(message='_writeModuleHeader')
+    lines.append("library IEEE;\n")
+    lines.append("\tuse IEEE.std_logic_1164.all;\n")
+    lines.append("\tuse IEEE.numeric_std.all;\n")
+    lines.append("\tuse std.textio.all;\n\n")
     if lib != "work":
-        print("library %s;" % lib, file=f)
+        lines.append("library %s;\n\n" % lib)
     if useClauses is not None:
-        f.write(useClauses)
-        f.write("\n")
+        lines.append(useClauses)
+        lines.append("\n\n")
     else:
-        print("\tuse %s.pck_myhdl_%s.all;" % (lib, _shortversion), file=f)
-    print(file=f)
+        lines.append("\tuse %s.pck_myhdl_%s.all;\n\n" % (lib, _shortversion))
     if needPck:
-        print("\tuse %s.pck_%s.all;" % (lib, intf.name), file=f)
-        print(file=f)
-    print("entity %s is" % intf.name, file=f)
+        lines.append("\tuse %s.pck_%s.all;\n\n" % (lib, intf.name))
+    return lines
+
+
+def _writeEntity(intf, needPck, lib, arch, useClauses, doc, stdLogicPorts, siglist, standard, structured_ports, portlist):
+    lines = []
+    lines.append("entity %s is" % intf.name)
     del portConversions[:]
     del suppressedWarnings[:]
     del constantlist[:]
     pl = []
     if intf.argnames:
-        f.write("\tport (")
+        lines.append("\tport (")
         for portname in intf.argnames:
             port = intf.argdict[portname]
-            if isinstance(port, (StructType, Array)):
-                trace.print(portname)
-                # expand the structure
-                # and add assignments
-                # taking care of unsigned <> std_logic_vector conversions
-                #                 expandStructType(c, stdLogicPorts, pl, portname, port)
-                expandStructuredPort(stdLogicPorts, pl, portname, port)
+            if isinstance(port, StructType):
+                trace.print('Port: ', portname)
+                if structured_ports:
+                    if len(port.reversedirections) == 0:
+                        # retrieve the reference for this structured type
+                        # add it to the package
+                        addstructuredport(stdLogicPorts, pl, portname, port)
+                        portlist.append(port)
+                    else:
+                        # members have different directions
+                        # only current option is to fully expand
+                        expandStructuredPort(stdLogicPorts, pl, portname, port, conditionally=True, portlist=portlist)
+                else:
+                    # expand the structure
+                    # and add assignments
+                    # taking care of unsigned <> std_logic_vector conversions
+                    expandStructuredPort(stdLogicPorts, pl, portname, port)
+            elif isinstance(port, Array):
+                if structured_ports:
+                    # retrieve the reference for this structured type
+                    # add it to the package
+                    addstructuredport(stdLogicPorts, pl, portname, port)
+                    portlist.append(port)
+                else:
+                    # expand the array
+                    # and add assignments
+                    # taking care of unsigned <> std_logic_vector conversions
+                    expandStructuredPort(stdLogicPorts, pl, portname, port)
             else:
                 # must be a Signal
                 # change name to convert to std_logic, or
@@ -456,8 +570,7 @@ def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPor
                     pt = "std_logic_vector"
                     if port.driven:
                         pl.append("\n\t\t%s : out %s%s;" % (portname, pt, r))
-                        portConversions.append(
-                            "\t%s <= %s(%s);" % (portname, pt, port._name))
+                        portConversions.append("\t%s <= %s(%s);" % (portname, pt, port._name))
                         # mark corresponding signal as read
                         for s in siglist:
                             if s._name == port._name:
@@ -465,63 +578,54 @@ def _writeModuleHeader(f, intf, needPck, lib, arch, useClauses, doc, stdLogicPor
                                 break
                     else:
                         if not port._read and not port._suppresswarning:
-                            warnings.warn(
-                                "%s: %s" % (_error.UnusedPort, portname), category=ToVHDLWarning)
+                            warnings.warn("%s: %s" % (_error.UnusedPort, portname), category=ToVHDLWarning)
 
                         pl.append("\n\t\t%s : in %s%s;" % (portname, pt, r))
                         if convertPort:
-                            portConversions.append(
-                                "\t%s <= %s(%s);" % (port._name, st, portname))
+                            portConversions.append("\t%s <= %s(%s);" % (port._name, st, portname))
                             port.driven = True
                 else:
                     if port._driven:
                         if port._read:
                             if standard == '2008':
-                                pl.append("\n\t\t%s : out %s%s;" %
-                                          (portname, pt, r))
+                                pl.append("\n\t\t%s : out %s%s;" % (portname, pt, r))
                             else:
-                                pl.append("\n\t\t%s : inout %s%s;" %
-                                          (portname, pt, r))
+                                pl.append("\n\t\t%s : inout %s%s;" % (portname, pt, r))
                                 if not isinstance(port, _TristateSignal):
-                                    warnings.warn(
-                                        "%s: %s" % (_error.OutputPortRead, portname), category=ToVHDLWarning)
+                                    warnings.warn("%s: %s" % (_error.OutputPortRead, portname), category=ToVHDLWarning)
                         else:
-                            pl.append("\n\t\t%s : out %s%s;" %
-                                      (portname, pt, r))
+                            pl.append("\n\t\t%s : out %s%s;" % (portname, pt, r))
                         if convertPort:
-                            portConversions.append(
-                                "\t%s <= %s(%s);" % (portname, pt, port._name))
+                            portConversions.append("\t%s <= %s(%s);" % (portname, pt, port._name))
                             port._read = True
                     else:
                         if not port._read and not port._suppresswarning:
-                            warnings.warn(
-                                "%s: %s" % (_error.UnusedPort, portname), category=ToVHDLWarning)
+                            warnings.warn("%s: %s" % (_error.UnusedPort, portname), category=ToVHDLWarning)
 
                         pl.append("\n\t\t%s : in %s%s;" % (portname, pt, r))
                         if convertPort:
-                            portConversions.append(
-                                "\t%s <= %s(%s);" % (port._name, st, portname))
+                            portConversions.append("\t%s <= %s(%s);" % (port._name, st, portname))
                             port._driven = True
 
         sl = sortalign(pl, sort=False, port=True)
         fsl = ''.join((sl))
-        f.write(fsl[:-1])
-        f.write("\n\t\t);\n")
-    print("end entity %s;\n" % intf.name, file=f)
-    print(doc, file=f)
-    print(file=f)
-    print("architecture %s of %s is" % (arch, intf.name), file=f)
-    print(file=f)
+        lines.append(fsl[:-1])
+        lines.append("\n\t\t);\n")
+    lines.append("end entity %s;\n" % intf.name)
+    lines.append(doc)
+    lines.append("\narchitecture %s of %s is\n" % (arch, intf.name))
+    trace.pop()
+    return lines
 
 
 def addStructuredPortEntry(stdLogicPorts, pl, portname, portsig):
-    trace.print('addStructuredPortEntry', stdLogicPorts, pl, portname, portsig)
+    trace.print('addStructuredPortEntry', stdLogicPorts, portname, portsig)
     r = _getRangeString(portsig)
     pt = st = _getTypeString(portsig)
     if stdLogicPorts:
         if isinstance(portsig._val, intbv):
             pt = 'std_logic_vector'
-    if portsig._driven:
+    if portsig.driven:
         if portsig.read:
             pl.append("\n\t\t%s : inout %s%s;" % (portname, pt, r))
             warnings.warn("%s: %s" % (_error.OutputPortRead, portname), category=ToVHDLWarning)
@@ -532,28 +636,45 @@ def addStructuredPortEntry(stdLogicPorts, pl, portname, portsig):
         else:
             portConversions.append("\t%s <= %s;" % (portname, portsig._name))
         portsig._read = True
-    elif portsig.read:
+    else:
+        # default to being read ...
+        # we don't support inout ports ...
+        #     elif portsig.read:
         pl.append("\n\t\t%s : in %s%s;" % (portname, pt, r))
         if isinstance(portsig._val, intbv):
             portConversions.append("\t%s <= %s(%s);" % (portsig._name, st, portname))
         else:
             portConversions.append("\t%s <= %s;" % (portsig._name, portname))
         portsig._driven = True
-    else:
-        # silently discard neither driven nor read members
-        trace.print('neither driven nor read?')
-        pass
+#     else:
+#         # silently discard neither driven nor read members
+#         trace.print('neither driven nor read?')
+#         pass
 
 
-def expandStructuredPort(stdLogicPorts, pl, name, obj):
+def expandStructuredPort(stdLogicPorts, pl, name, obj, conditionally=False, portlist=None):
     trace.print('expanding', name, repr(obj))
     if isinstance(obj, StructType):
         for attr, attrobj in vars(obj).items():
             if isinstance(attrobj, _Signal):
                 addStructuredPortEntry(stdLogicPorts, pl, ''.join((name, attr)), attrobj)
             elif isinstance(attrobj, StructType):
-                trace.print('Expanding', name, attr)
-                expandStructuredPort(stdLogicPorts, pl, name + attr, attrobj)
+                if conditionally:
+                    if len(attrobj.reversedirections) == 0:
+                        addstructuredport(stdLogicPorts, pl, name + attr, attrobj, portconversion=True)
+                        portlist.append(attrobj)
+                    else:
+                        expandStructuredPort(stdLogicPorts, pl, name + attr, attrobj, conditionally=conditionally, portlist=portlist)
+                else:
+                    trace.print('Expanding', name, attr)
+                    expandStructuredPort(stdLogicPorts, pl, name + attr, attrobj)
+            elif isinstance(attrobj, Array):
+                if conditionally:
+                    addstructuredport(stdLogicPorts, pl, name + attr, attrobj, portconversion=True)
+                    portlist.append(attrobj)
+                else:
+                    trace.print('Expanding', name, attr)
+                    expandStructuredPort(stdLogicPorts, pl, name + attr, attrobj)
             # else EnumItemType, int, str, ...
     elif isinstance(obj, Array):
         name += '_'
@@ -564,40 +685,61 @@ def expandStructuredPort(stdLogicPorts, pl, name, obj):
         else:
             # lowest level of array
             if isinstance(obj.element, StructType):
-                for i in len(obj):
-                    expandStructuredPort(
-                        stdLogicPorts, pl, name + str(i), obj[i])
+                for i in range(len(obj)):
+                    expandStructuredPort(stdLogicPorts, pl, name + str(i), obj[i])
             else:
                 # Signal
-                for i in len(obj):
-                    addStructuredPortEntry(
-                        stdLogicPorts, pl, ''.join((name, str(i))), obj[i])
+                for i in range(len(obj)):
+                    addStructuredPortEntry(stdLogicPorts, pl, ''.join((name, str(i))), obj[i])
         # not yet
-        raise ToVHDLError("Don't do Arrays", obj)
+#         raise ToVHDLError("Don't do Arrays", obj)
         # need to add a type declaration to a package
 
 
-def _writeFuncDecls(f):
-    return
+def addstructuredport(stdLogicPorts, pl, portname, port, portconversion=False):
+    trace.print('addstructuredport', portname, port)
+    addstructuredtypedef(port, packagedefs, None)
+    if port.driven:
+        pl.append("\n\t\t{} : out {};".format(portname, port.ref()))
+        if portconversion:
+            portConversions.append("\t{} <= {};".format(portname, port._name))
+        port._read = True
+    else:
+        # default to being read ...
+        # we don't support inout ports ...
+        #     elif portsig.read:
+        pl.append("\n\t\t{} : in {};".format(portname, port.ref()))
+        if portconversion:
+            portConversions.append("\t{} <= {};".format(port._name, portname))
+        port._read = True
+        port.driven = True
 
 
-def _writeConstants(f, memlist):
-    f.write("\n")
+def _writeFuncDecls():
+    return []
+
+
+def _writeConstants(memlist):
+    trace.push(message='_writeConstants')
+    lines = []
+    lines.append("\n")
     cl = []
 
     for m in memlist:
+        trace.print(m)
         if not m._used:
             continue
         if m.driven or not m._read:
             continue
         # not driven, but _read
         # drill down into the list
-        cl.append("\tconstant {} : {} := ( {} );\n" .format(
-            m.name, m._typedef, expandconstant(m.mem)))
+        cl.append("\tconstant {} : {} := ( {} );\n" .format(m.name, m._typedef, expandconstant(m.mem)))
         constantlist.append(m.name)
     for l in sortalign(cl, sort=True):
-        f.write(l)
-    f.write("\n")
+        lines.append(l)
+    lines.append("\n")
+    trace.pop()
+    return lines
 
 
 def expandconstant(c):
@@ -666,59 +808,17 @@ def expandarray(c):
         return s[:-2]
 
 
-class _typedef(object):
-
-    def __init__(self):
-        self.names = []
-        self.basetypes = []
-        self.VHDLcodes = []
-
-    def clear(self):
-        self.names = []
-        self.basetypes = []
-        self.VHDLcodes = []
-
-    def add(self, name, basetypes, VHDLcode):
-        if name not in self.names:
-            self.names.append(name)
-            self.basetypes.append(basetypes)
-            self.VHDLcodes.append(VHDLcode)
-
-    def write(self, f):
-        # first 'sort'
-        nrtd = len(self.names)
-        idx = 0
-        while idx < nrtd:
-            bt = self.basetypes[idx]
-            if bt is not None:
-                if bt in self.names[idx + 1:]:
-                    btidx = self.names.index(bt)
-                    self.names.insert(idx, self.names.pop(btidx))
-                    self.basetypes.insert(idx, self.basetypes.pop(btidx))
-                    self.VHDLcodes.insert(idx, self.VHDLcodes.pop(btidx))
-                    # stay at this index and test whether this name now has a
-                    # 'predecessor'
-                else:
-                    idx += 1
-
-            else:
-                idx += 1
-
-        # then write
-        for i, l in enumerate(self.VHDLcodes):
-            f.write(l)
-
-
-def addstructuredtypedef(obj):
+def addstructuredtypedef(obj, targetlist, otherlist=None):
     ''' adds the typedefs for a StructType
         possibly descending down
+        check whether it already exists in otherlist if applicable
     '''
     basetype = None
     if isinstance(obj, StructType):
         refs = vars(obj)
         for key in refs:
             if isinstance(refs[key], (StructType, Array)):
-                basetype = addstructuredtypedef(refs[key])
+                basetype = addstructuredtypedef(refs[key], targetlist, otherlist)
         # all lower structured types are now defined
 #         rname = '\\' + obj.ref() + '\\'
         rname = obj.ref()
@@ -751,12 +851,13 @@ def addstructuredtypedef(obj):
 #             lines += line
         lines += ''.join((sortalign(entries, sort=False)))
         lines += "\tend record ;\n\n"
-        typedefs.add(rname, None, lines)
+        if otherlist is None or rname not in otherlist.names:
+            targetlist.add(rname, None, lines)
         basetype = rname
 
     elif isinstance(obj, Array):
         if isinstance(obj.element, StructType):
-            p = basetype = addstructuredtypedef(obj.element)
+            p = basetype = addstructuredtypedef(obj.element, targetlist, otherlist)
         else:
             if isinstance(obj.element, _Signal):
                 mobj = obj.element._val
@@ -776,15 +877,32 @@ def addstructuredtypedef(obj):
         for _, size in enumerate(reversed(obj.shape)):
             o = basetype
             basetype = 'a{}_{}'.format(size, o)
-            typedefs.add(
-                basetype, o, "\ttype {} is array(0 to {}-1) of {};\n" .format(basetype, size, p))
+            if otherlist is None or basetype not in otherlist.names:
+                targetlist.add(basetype, o, "\ttype {} is array(0 to {}-1) of {};\n" .format(basetype, size, p))
             # next level if any
             p = basetype
     return basetype
 
 
-def _writeTypeDefs(f, memlist):
-    f.write("\n")
+def updatedrivenread(memlist, portlist):
+    for m in memlist:
+        if not m._used or m.usagecount == 0:
+            continue
+        if m.mem in portlist:
+            # reference to an un-expanded structured port
+            pass
+        else:
+            # infer attributes for the case of named signals in a list
+            trace.print('inferring {:30} {:4} {:4} {}'.format(m.name, m._driven, m._read, repr(m.mem)))
+            trace.push(message='inferattrs')
+            inferattrs(m, m.mem)
+            trace.pop()
+            trace.print('\tinferred: driven: {:4} read: {:4}'.format(m._driven, m._read))
+
+
+def _writeTypeDefs(memlist):
+    lines = []
+    lines.append("\n")
     # write the enums
     sortedList = list(_enumTypeSet)
     sortedList.sort(key=lambda x: x._name)
@@ -793,23 +911,23 @@ def _writeTypeDefs(f, memlist):
         if t._name not in enumused:
             enumused.append(t._name)
             tt = "%s\n" % t._toVHDL()
-            f.write(tt)
-    f.write("\n")
+            lines.append(tt)
+    lines.append("\n")
     # then write the structured types
     for m in memlist:
         if not m._used or m.usagecount == 0:
             continue
-        # infer attributes for the case of named signals in a list
-        trace.print('inferring {:30} {:4} {:4} {}'.format(m.name, m._driven, m._read, repr(m.mem)))
-        trace.push(message='inferattrs')
-        inferattrs(m, m.mem)
-        trace.pop()
-        trace.print('\tinferred: driven: {:4} read: {:4}'.format(m._driven, m._read))
+#         # infer attributes for the case of named signals in a list
+#         trace.print('inferring {:30} {:4} {:4} {}'.format(m.name, m._driven, m._read, repr(m.mem)))
+#         trace.push( message='inferattrs')
+#         inferattrs(m, m.mem)
+#         trace.pop()
+#         trace.print('\tinferred: driven: {:4} read: {:4}'.format(m._driven, m._read))
         if m.depth == 1 and isinstance(m.elObj, StructType):
                 # a 'single' StructType
-            basetype = addstructuredtypedef(m.elObj)
+            basetype = addstructuredtypedef(m.elObj, typedefs, packagedefs)
         elif isinstance(m.mem, Array):
-            basetype = addstructuredtypedef(m.mem)
+            basetype = addstructuredtypedef(m.mem, typedefs, packagedefs)
 
         else:
             # it is a (multi-dimensional) list
@@ -841,16 +959,14 @@ def _writeTypeDefs(f, memlist):
 
         m._typedef = basetype
 
-    typedefs.write(f)
-    f.write("\n")
+    typedefs.write(lines)
+    lines.append("\n")
+    return lines
 
 
-constwires = []
-typedefs = _typedef()
-functiondefs = []
-
-
-def _writeSigDecls(f, intf, siglist, memlist):
+def _writeSigDecls(intf, siglist, memlist):
+    lines = []
+    trace.push(True, message='_writeSigDecls')
     del constwires[:]
     typedefs.clear()
     del functiondefs[:]
@@ -948,25 +1064,32 @@ def _writeSigDecls(f, intf, siglist, memlist):
         else:
             pass
 
-    for l in sortalign(sl, sort=True):
-        print(l, file=f)
-    print(file=f)
+#     for l in sl:
+#         trace.print(l)
+#     for l in sortalign(sl, sort=True):
+#         lines.append(l + '\n')
+
+    for l in sl:
+        lines.append(l + '\n')
+    lines.append('\n')
+    trace.pop()
+    return lines
 
 
-def sortalign(sl, sort=False, port=False):
+def sortalign(sl, sort=False, port=False, sep=':'):
 
     # align the colons
     maxpos = 0
     for l in sl:
-        if ':' in l:
-            t = l.find(':')
+        if sep in l:
+            t = l.find(sep)
             maxpos = t if t > maxpos else maxpos
 
     if maxpos:
         for i, l in enumerate(sl):
-            if ':' in l:
-                p = l.find(':')
-                b, c, e = l.partition(':')
+            if sep in l:
+                p = l.find(sep)
+                b, c, e = l.partition(sep)
                 sl[i] = b + ' ' * (maxpos - p) + c + e
 
     # align after 'in', 'out' or 'inout'
@@ -1008,7 +1131,7 @@ def sortalign(sl, sort=False, port=False):
 
 
 def inferattrs(m, mem, level=0):
-    trace.print('{} {} {}'.format(level, m, mem))
+    trace.print('{} {} {} {} {}'.format(level, m, mem, m.driven, m._read))
     level += 1
     if isinstance(mem, StructType):
         refs = vars(mem)
@@ -1024,9 +1147,11 @@ def inferattrs(m, mem, level=0):
                 # or an Array
                 inferattrs(m, s, level)
             else:
-                pass
+                continue
+            trace.print('{} testing {} driven: {} read: {} -> {} {}'.format('\t' * level, s, s.driven, s._read, m.driven, m._read))
 
     elif isinstance(mem[0], (list, Array)):
+        trace.print(mem)
         for mmm in mem:
             #             trace.print(m, mmm, level)
             inferattrs(m, mmm, level)
@@ -1035,7 +1160,7 @@ def inferattrs(m, mem, level=0):
         # lowest (= last) level of m1D
         #         trace.print(repr(m), hasattr(m, 'driven'))
         for s in mem:
-            #             trace.print('\t', repr(s), hasattr(s, 'driven'), s.driven)
+            trace.print('\t', repr(s), hasattr(s, 'driven'), s.driven)
             if hasattr(m, 'driven') and hasattr(s, 'driven'):
                 if not m.driven and s.driven:
                     m._driven = s.driven
@@ -1044,13 +1169,13 @@ def inferattrs(m, mem, level=0):
                 trace.print('{} testing {} driven: {} read: {} -> {} {}'.format('\t' * level, s, s.driven, s._read, m.driven, m._read))
 
 
-def _writeCompDecls(f, compDecls):
+def _writeCompDecls(lines, compDecls):
     if compDecls is not None:
-        print(compDecls, file=f)
+        lines.append(compDecls + '\n')
 
 
-def _writeModuleFooter(f, arch):
-    print("\nend architecture %s;" % arch, file=f)
+def _writeModuleFooter(lines, arch):
+    lines.append("\nend architecture %s;" % arch)
 
 
 def _getRangeString(s):
@@ -1104,7 +1229,7 @@ def _getTypeString(s):
     return r
 
 
-def _convertGens(genlist, siglist, memlist, vfile):
+def _convertGens(genlist, siglist, memlist, lines):
     trace.push(message='_convertGens')
     blockBuf = StringIO()
     funcBuf = StringIO()
@@ -1133,14 +1258,15 @@ def _convertGens(genlist, siglist, memlist, vfile):
         v = Visitor(tree, blockBuf, funcBuf)
         v.visit(tree)
         trace.pop()
+        trace.pop()
 
-    vfile.write(funcBuf.getvalue())
+    lines.append(funcBuf.getvalue())
     funcBuf.close()
-    print("begin", file=vfile)
-    print(file=vfile)
-    for st in portConversions:
-        print(st, file=vfile)
-    print(file=vfile)
+    lines.append("begin\n")
+    if len(portConversions):
+        for st in sortalign(portConversions, sort=True, sep='<='):
+            lines.append(st + '\n')
+        lines.append('\n')
     for s in constwires:
         if s._type is bool:
             c = int(s._val)
@@ -1155,8 +1281,8 @@ def _convertGens(genlist, siglist, memlist, vfile):
                 pre, suf = "to_unsigned(", ", %s)" % w
         else:
             raise ToVHDLError("Unexpected type for constant signal", s._name)
-        print("%s <= %s%s%s;" % (s._name, pre, c, suf), file=vfile)
-    print(file=vfile)
+        lines.append("%s <= %s%s%s;\n" % (s._name, pre, c, suf))
+    lines.append('\n')
     # shadow signal assignments
     for s in siglist:
         #         trace.print(s._name, repr(s), s)
@@ -1170,7 +1296,7 @@ def _convertGens(genlist, siglist, memlist, vfile):
 #                 else:
 #                     r = s.toVHDL()
                 r = s.toVHDL()
-                print(r, file=vfile)
+                lines.append(r + '\n')
 #             else:
 #                 trace.print('not read', repr(s))
     # hack for shadow-signals in a list etc
@@ -1183,12 +1309,12 @@ def _convertGens(genlist, siglist, memlist, vfile):
                 trace.print('_convertGens, Array', m.mem._name, m.mem, m.mem.isshadow)
                 if m.mem.isshadow:
                     r = '\n'.join(m.mem.toVHDL())
-                    print(r, file=vfile)
+                    lines.append(r + '\n')
             elif isinstance(m.mem, StructType):
                 trace.print('_convertGens, StructType', m.mem._name, m.mem, m.mem.isshadow)
                 if m.mem.isshadow:
                     r = '\n'.join(m.mem.toVHDL())
-                    print(r, file=vfile)
+                    lines.append(r + '\n')
             else:
                 # a list
                 # possibly of Array or StructType !
@@ -1198,14 +1324,14 @@ def _convertGens(genlist, siglist, memlist, vfile):
                     if isinstance(s, (Array, StructType)):
                         if s.isshadow:
                             r = '\n'.join(s.toVHDL())
-                            print(r, file=vfile)
+                            lines.append(r + '\n')
                     else:
                         if hasattr(s, 'toVHDL'):
                             #                         trace.print('toVHDL hasattr', repr(s))
                             r = s.toVHDL()
-                            print(r, file=vfile)
-    print(file=vfile)
-    vfile.write(blockBuf.getvalue())
+                            lines.append(r + '\n')
+    lines.append('\n')
+    lines.append(blockBuf.getvalue())
     blockBuf.close()
     trace.pop()
 
@@ -1252,18 +1378,15 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.labelStack = []
         self.context = None
         self.astinfo = None
-        self.line = ''
         self.funcBuf = None
 
     def write(self, arg):
         self.buf.write("%s" % arg)
-        self.line += "%s" % arg
 
     def writeline(self, nr=1):
         for _ in range(nr):
             self.buf.write("\n")
         self.buf.write("%s" % self.ind)
-        self.line = "%s" % self.ind
 
     def writeDoc(self, node):
         assert hasattr(node, 'doc')
@@ -1397,8 +1520,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 basetype = 'a{}_{}'.format(size, 0)
 #                 if basetype not in typedefs:
 #                     self.write("type {} is array(0 to {}-1) of {};" .format(basetype, size, p))
-                typedefs.add(
-                    basetype, basetype, "type {} is array(0 to {}-1) of {};" .format(basetype, size, p))
+                typedefs.add(basetype, basetype, "type {} is array(0 to {}-1) of {};" .format(basetype, size, p))
                 # next level if any
                 p = basetype
             tipe = basetype
