@@ -154,6 +154,10 @@ class intbv(object):
     def __len__(self):
         return self._nrbits
 
+    @property
+    def nbits(self):
+        return self._nrbits
+
     # indexing and slicing methods
 
     def __getitem__(self, key):

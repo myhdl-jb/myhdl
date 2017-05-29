@@ -226,6 +226,7 @@ class _UserVhdlInstance(_UserVhdlCode):
 
     def __str__(self):
         args = inspect.getargspec(self.func)[0]
+        print('adding UserVhdlInstance', self.code, self.funcname, args)
         s = "%s: entity work.%s(MyHDL)\n" % (self.code, self.funcname)
         s += "    port map ("
         sep = ''
@@ -268,8 +269,7 @@ def _addUserCode(specs, arg, funcname, func, frame):
         if spec:
             assert id(arg) not in _userCodeMap[hdl]
             code = specs[spec]
-            _userCodeMap[hdl][id(arg)] = classMap[spec](
-                code, namespace, funcname, func, sourcefile, sourceline)
+            _userCodeMap[hdl][id(arg)] = classMap[spec](code, namespace, funcname, func, sourcefile, sourceline)
 
 
 class _CallFuncVisitor(object):

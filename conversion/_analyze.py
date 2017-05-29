@@ -557,7 +557,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         for n in node.values:
             if not hasType(n.obj, bool):
                 self.raiseError(
-                    node, _error.NotSupported, "non-boolean argument in logical operator '{}'".format(n.obj))
+                    node, _error.NotSupported, "non-boolean argument in logical operator: '{}'. Possibly Signal(intbv(0)) in stead of Signal(bool(0))".format(n.obj))
         node.obj = bool()
         trace.pop()
 
@@ -682,6 +682,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         trace.push(message='visit_Assign')
         trace.print(node)
         target, value = node.targets[0], node.value
+        trace.print('target: {} value: {}'.format(target, value))
         self.access = _access.OUTPUT
 #         trace.push(None, 'rhs')
         self.visit(target)
@@ -1142,7 +1143,8 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                 trace.print(repr(m))
                 if self.access == _access.INPUT:
                     m._read = True
-                    node.obj._read = True
+                    if not isinstance(node.obj, list):
+                        node.obj._read = True
                 elif self.access == _access.OUTPUT:
                     m.driven = 'reg'
                     self.tree.outmems.add(n)
@@ -1453,11 +1455,14 @@ class _AnalyzeAlwaysSeqVisitor(_AnalyzeBlockVisitor):
         self.tree.varregs = varregs
 
     def visit_FunctionDef(self, node):
+        trace.push(message='_AnalyzeAlwaysSeqVisitor visit_FunctionDef <{}>'.format(node.name))
+        trace.print(vars(node))
         self.refStack.push()
         for n in node.body:
             self.visit(n)
         self.tree.kind = _kind.ALWAYS_SEQ
         self.refStack.pop()
+        trace.pop()
 
 
 class _AnalyzeAlwaysDecoVisitor(_AnalyzeBlockVisitor):

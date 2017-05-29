@@ -333,10 +333,12 @@ class _ToVHDLConvertor(object):
                                    self.structured_ports, portlist)
 #         for port in portlist:
 #             print(port)
-#         for m in memlist:
-#             print(m)
-#             if m.mem in portlist:
-#                 print('gotcha')
+        # shortcut to remove input port arrays from the memlist
+#         print(repr(memlist))
+        for m in memlist:
+            if m.mem in portlist:
+                print('gotcha', m, m.mem, m.mem.driven, m.mem.read)
+                memlist.remove(m)
 
         updatedrivenread(memlist, portlist)
         typedefines = _writeTypeDefs(memlist)
@@ -362,15 +364,15 @@ class _ToVHDLConvertor(object):
 
             usepkg = '\tuse {}.pkg_{}.all;\n\n'.format(lib, name)
             headerlines.append(usepkg)
-
-        sl = []
-        for line in siglines:
-            print(line, end='')
-            sl.append(line.replace(name + '_', ''))
-        for line in sl:
-            print(line, end='')
+#
+#         sl = []
+#         for line in siglines:
+#             #             print(line, end='')
+#             sl.append(line.replace(name + '_', ''))
+# #         for line in sl:
+# #             print(line, end='')
         tfile.write(''.join(headerlines + entitylines + typedefines + funclines + constantlines))
-        tfile.write(''.join(sortalign(sl, sort=True) + vlines))
+        tfile.write(''.join(sortalign(siglines, sort=True) + vlines))
         tfile.close()
         # tbfile.close()
 
@@ -966,7 +968,7 @@ def _writeTypeDefs(memlist):
 
 def _writeSigDecls(intf, siglist, memlist):
     lines = []
-    trace.push(True, message='_writeSigDecls')
+    trace.push(message='_writeSigDecls')
     del constwires[:]
     typedefs.clear()
     del functiondefs[:]
@@ -1028,11 +1030,15 @@ def _writeSigDecls(intf, siglist, memlist):
 
         # left to process
         if isinstance(m.mem, Array):
-            if m.mem._initialised or not toVHDL.no_initial_values:
-                sl.append("\tsignal {} : {} := ({});" .format(
-                    m.name, m._typedef, expandarray(m.mem)))
+            if m.mem.attributes is None:
+                if m.mem._initialised or not toVHDL.no_initial_values:
+                    sl.append("\tsignal {} : {} := ({});" .format(m.name, m._typedef, expandarray(m.mem)))
+                else:
+                    sl.append("\tsignal {} : {};" .format(m.name, m._typedef))
             else:
-                sl.append("\tsignal {} : {};" .format(m.name, m._typedef))
+                print('{} has attributes: {}'.format(m.mem, m.mem.attributes))
+                sl.append("\tshared variable {} : {};" .format(m.name, m._typedef))
+
         elif isinstance(m.mem, list):
             # assuming it is is a single list
             # try to shortcut the initialisation
@@ -1158,9 +1164,7 @@ def inferattrs(m, mem, level=0):
 
     else:
         # lowest (= last) level of m1D
-        #         trace.print(repr(m), hasattr(m, 'driven'))
         for s in mem:
-            trace.print('\t', repr(s), hasattr(s, 'driven'), s.driven)
             if hasattr(m, 'driven') and hasattr(s, 'driven'):
                 if not m.driven and s.driven:
                     m._driven = s.driven
@@ -1714,10 +1718,19 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         trace.pop()
 
     def setAttr(self, node):
-        self.SigAss = True
+        #         self.SigAss = True
         if isinstance(node.value, ast.Subscript):
-            self.SigAss = 'Killroy'
+            #             print('setAttr', node, vars(node.value), self.SigAss)
+            #             print('setAttr', node.value.value.obj)
+            if isinstance(node.value.value.obj, Array):
+                #                 print(node.value.value.obj.attributes)
+                if node.value.value.obj.attributes is None:
+                    self.SigAss = 'Killroy'
+
+            else:
+                self.SigAss = 'Killroy'
             self.visit(node.value)
+#             print(self.SigAss)
 
         else:
             assert node.attr == 'next'
@@ -1767,6 +1780,13 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             elif isinstance(obj, StructType):
                 #                 trace.print('getAttr, skipping StructType')
                 pass
+
+            elif isinstance(obj, Array):
+                if node.attr == 'next':
+                    # check if we have a shared variable
+                    if obj.attributes is not None:
+                        print('setting SigAss to False')
+                        self.SigAss = False
 
             if isinstance(obj, (_Signal, intbv)):
                 if node.attr in ('min', 'max'):
@@ -1838,11 +1858,12 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         if isinstance(lhs.vhd, vhd_type):
             rhs.vhd = lhs.vhd
         self.isLhs = True
-#         trace.push(message='visit_Assign visit(lhs)')
+        trace.push(message='visit_Assign visit(lhs)')
         self.visit(lhs)
-#         trace.pop()
+        trace.pop()
         self.isLhs = False
 #         trace.push(message='assign')
+#         print('visit_Assign using', self.SigAss)
         if self.SigAss:
             if isinstance(lhs.value, ast.Name):
                 sig = self.tree.symdict[lhs.value.id]
@@ -2824,6 +2845,7 @@ class _ConvertSimpleAlwaysCombVisitor(_ConvertVisitor):
             self.visit(node.value)
         else:
             self.getAttr(node)
+#         print('_ConvertSimpleAlwaysCombVisitor visit_Attribute', self.SigAss)
 
     def visit_FunctionDef(self, node, *args):
         trace.print(node)

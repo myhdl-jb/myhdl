@@ -94,10 +94,10 @@ class Array(object):
 
     __slots__ = ('_array', '_next', '_init', '_val', '_name', '_dtype', '_nrbits',
                  '_driven', '_read', '_isshadow', '_used', '_initialised', '_isSignal',
-                 'element', 'levels', 'shape', 'sizes', 'size', '_setNextVal'
+                 'element', 'levels', 'shape', 'sizes', 'size', '_setNextVal', 'attributes'
                  )
 
-    def __init__(self, shape, dtype, vector=None):
+    def __init__(self, shape, dtype, vector=None, attributes=None):
         '''
         build the object
             note that the default initialisation is supplied with dtype itself
@@ -123,6 +123,7 @@ class Array(object):
         self._isSignal = False
         self.size = 0
         self._isshadow = False
+        self.attributes = attributes
         if isinstance(shape, list) and isinstance(dtype, Array):
             # wrapping a slice of an Array (a slice is a 'naked' list)
             # can copy a few attributes
@@ -563,6 +564,8 @@ class Array(object):
     def driven(self):
         def ldriven(obj):
             ''' a local function to do the work, recursively '''
+            if isinstance(self.element, intbv):
+                return False
             if isinstance(obj[0], (list, Array)):
                 for item in obj:
                     if ldriven(item):
@@ -831,6 +834,8 @@ class StructType(object):
 
             lnrbits = 0
             for item in objlist:
+                if item is None:
+                    continue
                 if isinstance(item, _Signal):
                     lnrbits += len(item)
                 else:
