@@ -88,7 +88,7 @@ class intbv(object):
             #             print(repr(sig), self._val, self._max, self._min)
             if self._val >= self._max:
                 raise ValueError("%s: intbv value %s (%s) >= maximum %s (%s)" %
-                                 (repr(sig), self._val, hex(self._val), self._max, hex(self._max)))
+                                 (repr(sig), self._val, hex(self._val), self._max - 1, hex(self._max - 1)))
         if self._min is not None:
             if self._val < self._min:
                 raise ValueError("%s: intbv value %s (%s) < minimum %s (%s)" %

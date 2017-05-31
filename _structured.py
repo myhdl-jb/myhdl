@@ -817,7 +817,7 @@ class StructType(object):
             self.sequencelist = args[1]
             for i, key in enumerate(args[1]):
                 setattr(self, key, args[2 + i])
-                self._nrbits += len(args[2 + i])
+                self._nrbits += args[2 + i].nbits
 
     @property
     def nbits(self):
