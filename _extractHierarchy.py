@@ -316,10 +316,14 @@ class _HierExtr(object):
 
         _profileFunc = self.extractor
         sys.setprofile(_profileFunc)
-        _top = dut(*args, **kwargs)
+        if hasattr(dut, 'rtl'):
+            _top = dut(*args, **kwargs).rtl()
+        else:
+            _top = dut(*args, **kwargs)
+
         trace.push(message='_HierExtr')
-        for tt in _top:
-            trace.print(tt)
+#         for tt in _top:
+#             trace.print(tt)
         sys.setprofile(None)
         if not hierarchy:
             raise ExtractHierarchyError(_error.NoInstances)

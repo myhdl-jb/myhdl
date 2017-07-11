@@ -317,7 +317,8 @@ class _ToVHDLConvertor(object):
 
         # write the MyHDL package, if required
         if pfile:
-            _writeFileHeader(pfile, ppath)
+            #             _writeFileHeader(pfile, ppath)
+            _writeFileHeader(pfile)
             print(_package, file=pfile)
             pfile.close()
 
@@ -2045,6 +2046,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 Visitor = _ConvertFunctionVisitor
 
             v = Visitor(node.tree, self.funcBuf)
+#             v = Visitor(node.tree, self.buf)
             v.visit(node.tree)
         trace.pop()
 
@@ -2998,6 +3000,7 @@ class _ConvertFunctionVisitor(_ConvertVisitor):
 
     def __init__(self, tree, funcBuf):
         _ConvertVisitor.__init__(self, tree, funcBuf)
+        self.funcBuf = funcBuf
         self.returnObj = tree.returnObj
         self.returnLabel = _Label("RETURN")
 
@@ -3015,6 +3018,7 @@ class _ConvertFunctionVisitor(_ConvertVisitor):
                 obj, name, dir="in", constr=False, endchar="")
 
     def visit_FunctionDef(self, node):
+        print(repr(node))
         if self.tree.name not in functiondefs:
             functiondefs.append(self.tree.name)
             self.write("\tfunction %s" % self.tree.name)
@@ -3037,6 +3041,7 @@ class _ConvertFunctionVisitor(_ConvertVisitor):
             self.writeline()
             self.write("begin")
             self.indent()
+            print('visiting node.body', repr(node.body))
             self.visit_stmt(node.body)
             self.dedent()
             self.writeline()
@@ -3054,6 +3059,7 @@ class _ConvertTaskVisitor(_ConvertVisitor):
 
     def __init__(self, tree, funcBuf):
         _ConvertVisitor.__init__(self, tree, funcBuf)
+        self.funcBuf = funcBuf
         self.returnLabel = _Label("RETURN")
 
     def writeInterfaceDeclarations(self):
