@@ -513,6 +513,7 @@ def _writeModuleHeader(intf, needPck, lib, useClauses):
 
 
 def _writeEntity(intf, needPck, lib, arch, useClauses, doc, stdLogicPorts, siglist, standard, structured_ports, portlist):
+    trace.push(False, message='_writeEntity')
     lines = []
     lines.append("entity %s is" % intf.name)
     del portConversions[:]
@@ -622,7 +623,7 @@ def _writeEntity(intf, needPck, lib, arch, useClauses, doc, stdLogicPorts, sigli
 
 
 def addStructuredPortEntry(stdLogicPorts, pl, portname, portsig):
-    trace.print('addStructuredPortEntry', stdLogicPorts, portname, portsig)
+    trace.print('addStructuredPortEntry', stdLogicPorts, portname, repr(portsig))
     r = _getRangeString(portsig)
     pt = st = _getTypeString(portsig)
     if stdLogicPorts:
@@ -2522,6 +2523,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 self.write(suf)
                 return
             # an array is specified (0 to n)
+            # allow Python's negative numbers
             self.write("(")
             if lower is None:
                 self.write("0")
@@ -2530,8 +2532,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.write(" to ")
             if upper is None:
                 # unfortunately .shape[0] is the 'sliced' size
-                self.write(
-                    "{}". format(self.getVal(node.slice.lower) + node.obj.shape[0]))
+                self.write("{}". format(self.getVal(node.slice.lower) + node.obj.shape[0]))
             else:
                 self.visit(upper)
 
@@ -3680,20 +3681,26 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
             if node.slice.upper:
                 node.slice.upper.vhd = vhd_int()
                 upper = self.getVal(node.slice.upper)
+                if (upper < 0):
+                    upper += node.obj.shape[0]
 #                 trace.print('upper: ', upper)
 
             lower = 0
             if node.slice.lower:
                 node.slice.lower.vhd = vhd_int()
                 lower = self.getVal(node.slice.lower)
+                if lower < 0:
+                    lower += node.obj.shape[0]
 #                 trace.print('lower: ', lower)
 
             if isinstance(node.ctx, ast.Store):
-                #                 trace.print('ast.Store')
+#                 trace.print('ast.Store')
                 pass
             else:
                 #                 trace.print('upper, lower', upper, lower)
                 node.vhd = vhd_array((upper - lower), node.obj.element)
+
+            print(lower, upper)
 #             if isinstance(node.obj._dtype, bool):
 #                 node.vhd = vhd_std_logic()
 #             elif isinstance(node.obj._dtype, intbv):
@@ -3705,7 +3712,7 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
         trace.pop()
 
     def accessIndex(self, node):
-        trace.push(message='accessIndex')
+        trace.push(False, message='accessIndex')
         trace.print(node.lineno)
         trace.print('vars: {}'.format(vars(node)))
         if hasattr(node, 'starget'):

@@ -690,6 +690,32 @@ class Array(object):
             else:
                 raise ValueError('Can only slice Signals (for now) <> {}'.format(repr(self.element)))
 
+
+    def reshape(self, shape):
+        ''' returns a Shadow Array '''
+        def product(shape):
+            if len(shape) == 1:
+                return shape[0]
+            else:
+                return shape[0] * product(shape[1:])
+        todo = product(shape)
+        assert self.size == todo, '{}.reshape({}) doesn\'t match the total number size'
+
+
+    def transform(self, shape, width):
+        ''' returns a Shadow Array '''
+        # the general solution is to first make a large intbv
+        # and then 'slice' this according the required new shape
+        # all other approaches are at best cumbersome?
+        if isinstance(self._dtype, intbv):
+            newarray = Array(shape, Signal(intbv(0)[width:]))
+            intermediate = self.tointbv()
+            newarray.fromintbv(intermediate)
+            return newarray
+        else:
+            raise ValueError('{}: Can only transform Array of intbv'.format(repr(self)))
+
+
     def fromintbv(self, vector, idx=0):
         ''' replace the elements of an Array by SliceSignals '''
         # a local function
@@ -754,32 +780,37 @@ class Array(object):
         _tovhdl(self, self._name)
         return lines
 
-    def tointbv(self):
+    def tointbv(self, BIGENDIAN=False):
         ''' concatenates all elements '''
-        def collect(obj, harvest):
+        def collect(obj, _h):
             ''' a local recursive function '''
             if len(obj.shape) == 1:
                 if isinstance(obj.element, _Signal):
                     for i in range(obj.shape[0]):
-                        harvest.append(obj[i])
+                        _h.append(obj[i])
                 elif isinstance(obj.element, StructType):
                     for i in range(obj.shape[0]):
-                        harvest.extend(obj.tointbv())
+                        _h.extend(obj.tointbv())
                 else:
                     pass
             else:
                 for i in range(obj.shape[0]):
-                    collect(obj[i], harvest)
+                    collect(obj[i], _h)
 
-        harvest = []
-        collect(self, harvest)
-        val = 0
+#         harvest = []
+#         collect(self, harvest)
+#         val = 0
 #         for hh in reversed(harvest):
 #             # hh must be a signal
 #             val += (val << hh._nrbits) + hh._val
 #         return Signal(intbv(val, _nrbits=self.element._nrbits * len(harvest))
         if self.size > 1:
-            return ConcatSignal(*reversed(harvest))
+            harvest = []
+            collect(self, harvest)
+            if not BIGENDIAN:
+                return ConcatSignal(*reversed(harvest))
+            else:
+                return ConcatSignal(*harvest)
         else:
             return self
 
