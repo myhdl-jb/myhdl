@@ -213,8 +213,67 @@ class _CloneSignal(_ShadowSignal):
         return "assign %s = %s;" % (self._name, self._sig._name)
 
     def toVHDL(self):
-        #         print('toVHDL', repr(self), repr(self._sig))
+#         print('_CloneSignal toVHDL', repr(self), repr(self._sig))
         return "    %s <= %s;" % (self._name, self._sig._name)
+
+class _ReverseSignal(_ShadowSignal):
+    ''' shadowing the whole 'reversed' signal '''
+    __slots__ = ('_sig')
+
+    def __init__(self, sig):
+#         print('Reversing', repr(sig))
+        # XXX error checks
+        # a 'clone'
+        _ShadowSignal.__init__(self, sig.val)
+        self._sig = sig
+#         self._left = None
+#         self._right = None
+        gen = self._genfuncClone()
+        self._waiter = _SignalWaiter(gen)
+        self._driven = 'wire'
+        # as we are a shadow signal we are reading the provider signal
+        self._sig._read = True
+
+    def _genfuncClone(self):
+        sig = self._sig
+#         set_next = _Signal.next.fset
+        while 1:
+#             set_next(self, sig)
+            rval = 0
+            for i in range(self._nrbits):
+                rval = rval * 2 + sig[i]
+            self._next._val = rval
+            _siglist.append(self)
+#             print('_genfuncClone', self._sig, rval)
+            yield sig
+
+    def _setName(self, hdl):
+        if hdl == 'Verilog':
+            self._name = "%s" % (self._sig._name)
+        else:
+            self._name = "%s" % (self._sig._name)
+
+    def _markRead(self):
+        self._read = True
+        self._sig._read = True
+
+    def _markUsed(self):
+        self._used = True
+        self._sig._used = True
+
+    def __repr__(self):
+        if self._name:
+            return "{}: Reversed Shadow({})".format(self._name, repr(self._val))
+        else:
+            return "Reversed Shadow({} of {})".format(repr(self._val), repr(self._sig))
+
+    def toVerilog(self):
+#         return "assign %s = %s;" % (self._name, self._sig._name)
+        raise ValueError('Not yet implemented. (never will?)')
+
+    def toVHDL(self):
+#         print('_ReverseSignal toVHDL', repr(self), repr(self._sig))
+        return "    %s <= reverse( %s );" % (self._name, self._sig._name)
 
 
 class ConcatSignal(_ShadowSignal):
@@ -303,6 +362,7 @@ class ConcatSignal(_ShadowSignal):
             return "ConcatSignal({} of {})".format(repr(self._val), repr(self._sigargs))
 
     def toVHDL(self):
+#         print('ConcatSignal toVHDL', repr(self))
         lines = []
         ini = intbv(self._initval)[self._nrbits:]
         hi = self._nrbits

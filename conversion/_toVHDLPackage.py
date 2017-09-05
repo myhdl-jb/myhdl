@@ -63,6 +63,8 @@ package pck_myhdl_%(version)s is
 
     function tern_op(cond: boolean; if_true: signed; if_false: signed) return signed;
    
+    function reverse(arg : unsigned ) return unsigned;
+    
 	-- normalise a slice of the v[x ..y] to the r[n..0] form
     -- e.g v[8..1] will become r[7..0] with the original(8) into the new (7) place
     -- a v[1..8] will also become r[7..0] but  have v(8) placed into r(0)
@@ -202,6 +204,15 @@ package body pck_myhdl_%(version)s is
 
 
 
+    function reverse( arg: unsigned) return unsigned is
+        variable rval : unsigned(arg'high downto 0);
+    begin
+        for i in 0 to arg'high loop
+            rval(arg'high - i) := arg(i);
+        end loop ;
+        return rval ;
+    end function reverse;
+    
     function normalise( v : std_logic_vector)
         return std_logic_vector
         is

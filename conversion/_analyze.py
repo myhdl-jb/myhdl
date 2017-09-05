@@ -43,7 +43,7 @@ from myhdl.conversion._misc import (_error, _access, _kind,
                                     _get_argnames)
 from myhdl._extractHierarchy import _isMem, _getMemInfo, _UserCode
 from myhdl._Signal import _Signal, _WaiterList
-from myhdl._ShadowSignal import _ShadowSignal, _SliceSignal, _IndexSignal, _CloneSignal, _TristateDriver
+from myhdl._ShadowSignal import _ShadowSignal, _SliceSignal, _IndexSignal, _CloneSignal, _TristateDriver, _ReverseSignal
 from myhdl._util import _isTupleOfInts, _dedent, _flatten, _makeAST
 from myhdl._resolverefs import _AttrRefTransformer
 from myhdl._compat import builtins, integer_types, PY2
@@ -93,7 +93,7 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
 #         trace.print(inst.argdict)
         delta = curlevel - level
         curlevel = level
-        assert(delta >= -1)
+        assert delta >= -1
         if delta > -1:  # same or higher level
             prefixes = prefixes[:curlevel - 1]
 #         # skip processing and prefixing in context without signals
@@ -101,19 +101,23 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
 #             prefixes.append("")
 #             continue
         prefixes.append(name)
-#         trace.print(prefixes)
+        trace.print(prefixes)
         for n, s in sigdict.items():
+            trace.print('_analyzeSigs level {}: {} {} {}'.format(level, s._name, n, repr(s)))
             if s._name is not None:
                 #                 if s._namelevel >= level:
                 #                     #                     trace.print(s._namelevel, level, s._name, _makeName(n, prefixes, namedict))
                 #                     #                     s._name = _makeName(n, prefixes, namedict)
                 #                     #                     trace.print(s._namelevel, level, s._name, _makeName(n, prefixes))
                 #                     s._name = _makeName(n, prefixes,)
+                trace.print(' skipping')
                 continue
 
-            if isinstance(s, (_SliceSignal, _IndexSignal, _CloneSignal)):
+            if isinstance(s, (_SliceSignal, _IndexSignal, _CloneSignal, _ReverseSignal)):
                 #                 trace.print('_analyzeSigs {} skipping {}'.format(level, repr(s)))
+                trace.print(' skipping ShadowSignals')
                 continue
+
 
 #             s._name = _makeName(n, prefixes, namedict)
             s._name = _makeName(n, prefixes)
@@ -121,7 +125,7 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
             if not s._nrbits:
                 raise ConversionError(_error.UndefinedBitWidth, s._name)
             # slice signals
-            # this goes only one level deep???
+            # this goes only one level deep???!!!
             for sl in s._slicesigs:
                 sl._setName(hdl)
 #                 trace.print(sl._name, sl._slicesigs)
@@ -130,27 +134,27 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
 #                         ssl._setName(hdl)
 #                         trace.print(ssl._name, ssl._slicesigs)
 #                     siglist.append(sl)
+            trace.print(' ', s._name)
             siglist.append(s)
-#             trace.print('_analyzeSigs {} {} {} siglist.append({})'.format(level, prefixes, n, repr(s)))
+
         # list of signals
         for n, m in memdict.items():
             if m.name is not None:
-                #                 trace.print('_analyzeSigs {} already taken, not replaced by {}'.format(m.name, _makeName(n, prefixes, namedict)))
-                #                 trace.print('_analyzeSigs {} already taken, not replaced by {}'.format(m.name, _makeName(n, prefixes)))
                 continue
 #             m.name = _makeName(n, prefixes, namedict)
             m.name = _makeName(n, prefixes)
             if isinstance(m.mem, (Array, StructType)):
                 m.mem._name = m.name
-#             else:
-#                 trace.print('_analyzeSigs: list:', n, m)
+#             print(m)
             memlist.append(m)
 #             trace.print('_analyzeSigs {} {} {} memlist.append({})'.format(level, prefixes, n, repr(m)))
+
+
 
     # handle the case where a named signal appears in a list also by giving
     # priority to the list and marking the signals as unused
 
-#     # tracing
+    # tracing
     for m in memlist:
         if not m._used:
             continue
@@ -158,6 +162,7 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
         trace.push(message="expanding {}".format(m.name))
         expandsignalnames(m.mem, m.name, 0, 0, openp, closep)
         trace.pop()
+
 
     return siglist, memlist
 
@@ -578,6 +583,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             self.setAttr(node)
         else:
             self.getAttr(node)
+
         if node.attr == 'next':
             if isinstance(node.value, ast.Name):
                 n = node.value.id
@@ -674,19 +680,23 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             node.obj = getattr(obj, node.attr)
 
         trace.print('result node.obj:', repr(node.obj))
+
         if node.obj is None:  # attribute lookup failed
             self.raiseError(node, _error.UnsupportedAttribute, node.attr)
+
         trace.pop()
 
     def visit_Assign(self, node):
         trace.push(message='visit_Assign')
-        trace.print(node)
         target, value = node.targets[0], node.value
         trace.print('target: {} value: {}'.format(target, value))
+
         self.access = _access.OUTPUT
-#         trace.push(None, 'rhs')
+        trace.push(None, 'lhs')
         self.visit(target)
-#         trace.pop()
+        trace.pop()
+
+        trace.push(None, 'rhs')
         self.access = _access.INPUT
         # set attribute to detect a top-level rhs
         value.isRhs = True
@@ -709,6 +719,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             if isinstance(obj, myhdl.modbv):
                 if not obj._hasFullRange():
                     self.raiseError(node, _error.ModbvRange, n)
+
             if n in self.tree.vardict:
                 # this fix
                 #                 if isinstance(obj, _Signal):
@@ -725,9 +736,12 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                     self.raiseError(node, _error.NrBitsMismatch, n)
             else:
                 self.tree.vardict[n] = obj
+
         else:
             self.visit(value)
 
+        trace.pop()
+        trace.print('finished')
         trace.pop()
 
     def visit_AugAssign(self, node):
@@ -930,6 +944,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         self.labelStack[-1].isActive = True
 
     def visit_For(self, node):
+        trace.push(None, 'visit_Call')
         node.breakLabel = _Label("BREAK")
         node.loopLabel = _Label("LOOP")
         self.labelStack.append(node.breakLabel)
@@ -954,6 +969,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         self.require(node, not node.orelse, "for-else not supported")
         self.labelStack.pop()
         self.labelStack.pop()
+        trace.pop()
 
     def visit_FunctionDef(self, node):
         raise AssertionError("subclass must implement this")
@@ -1140,7 +1156,6 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
 
             elif _isMem(node.obj):
                 m = _getMemInfo(node.obj)
-                trace.print(repr(m))
                 if self.access == _access.INPUT:
                     m._read = True
                     if not isinstance(node.obj, list):
@@ -1280,7 +1295,8 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         trace.pop()
 
     def accessIndex(self, node):
-        trace.print('accessIndex', self.access)
+        trace.push(message='accessIndex')
+        trace.print(self.access)
         self.visit(node.value)
         self.access = _access.INPUT
         self.visit(node.slice.value)
@@ -1303,7 +1319,8 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             node.obj = bool()
         else:
             node.obj = bool()  # XXX default
-        trace.print('accessIndex', node, node.value, repr(node.value.obj), repr(node.obj))
+        trace.print( node, node.value, repr(node.value.obj), repr(node.obj))
+        trace.pop()
 
     def visit_Tuple(self, node):
         self.generic_visit(node)
