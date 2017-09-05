@@ -342,7 +342,7 @@ class _HierExtr(object):
             raise ExtractHierarchyError(
                 _error.InconsistentToplevel % (top_inst.level, name))
         for inst in hierarchy:
-            #             trace.print(repr(inst))
+#             print(repr(inst))
             obj, subs = inst.obj, inst.subs
             if id(obj) not in names:
                 raise ExtractHierarchyError(_error.InconsistentHierarchy, '{}'.format(repr(obj)))

@@ -410,9 +410,12 @@ class _Signal(object):
                   (bin(self._val, self._nrbits), self._code), file=sim._tf)
 
     ### use call interface for shadow signals ###
-    def __call__(self, left=None, right=None, signed=False):
+    def __call__(self, left=None, right=None, signed=False, reverse=False):
         if left is None:
-            s = _CloneSignal(self)
+            if reverse:
+                s = _ReverseSignal(self)
+            else:
+                s = _CloneSignal(self)
         else:
             if right is None:
                 s = _IndexSignal(self, left)
@@ -639,22 +642,23 @@ class _Signal(object):
 
     # continues assignment support
     def assign(self, sig):
-
+ 
         self.driven = "wire"
-
+ 
         def genFunc():
             while 1:
                 self.next = sig._val
                 yield sig
-
+ 
         self._waiter = _SignalWaiter(genFunc())
-
+ 
         def toVHDL():
+            print('Signal toVHDL', self.sig)
             return "%s <= %s;" % (self._name, sig._name)
-
+ 
         def toVerilog():
             return "assign %s = %s;" % (self._name, sig._name)
-
+ 
         self.toVHDL = toVHDL
         self.toVerilog = toVerilog
 
@@ -769,6 +773,6 @@ SignalType = _Signal
 
 # avoid circular imports
 
-from myhdl._ShadowSignal import _SliceSignal, _IndexSignal, _CloneSignal
+from myhdl._ShadowSignal import _SliceSignal, _IndexSignal, _CloneSignal, _ReverseSignal
 from myhdl._Waiter import _SignalWaiter
 from myhdl._enum import EnumItemType

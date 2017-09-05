@@ -356,8 +356,12 @@ class _ToVHDLConvertor(object):
         # add local package if required
         if len(packagedefs.names):
             packagelines = []
-            pkgstart = 'library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\npackage pkg_{} is\n\n'.format(name)
-            packagelines.append(pkgstart)
+            pkgstart = ['library ieee;\n',
+                        '\tuse ieee.std_logic_1164.all;\n',
+                        '\tuse ieee.numeric_std.all;\n\n',
+                        'package pkg_{} is\n\n'.format(name)
+                        ]
+            packagelines.extend(pkgstart)
             packagedefs.write(packagelines)
             pkgend = '\nend pkg_{};\n\n'.format(name)
             packagelines.append(pkgend)
@@ -496,10 +500,11 @@ constantlist = []
 def _writeModuleHeader(intf, needPck, lib, useClauses):
     lines = []
     trace.push(message='_writeModuleHeader')
-    lines.append("library IEEE;\n")
-    lines.append("\tuse IEEE.std_logic_1164.all;\n")
-    lines.append("\tuse IEEE.numeric_std.all;\n")
-    lines.append("\tuse std.textio.all;\n\n")
+    lines.extend(["library IEEE;\n",
+                  "\tuse IEEE.std_logic_1164.all;\n",
+                  "\tuse IEEE.numeric_std.all;\n",
+                  "\tuse std.textio.all;\n\n",
+                 ])
     if lib != "work":
         lines.append("library %s;\n\n" % lib)
     if useClauses is not None:
@@ -513,7 +518,7 @@ def _writeModuleHeader(intf, needPck, lib, useClauses):
 
 
 def _writeEntity(intf, needPck, lib, arch, useClauses, doc, stdLogicPorts, siglist, standard, structured_ports, portlist):
-    trace.push(False, message='_writeEntity')
+    trace.push(message='_writeEntity')
     lines = []
     lines.append("entity %s is" % intf.name)
     del portConversions[:]
@@ -542,6 +547,7 @@ def _writeEntity(intf, needPck, lib, arch, useClauses, doc, stdLogicPorts, sigli
                     # taking care of unsigned <> std_logic_vector conversions
                     expandStructuredPort(stdLogicPorts, pl, portname, port)
             elif isinstance(port, Array):
+                trace.print('Port: ', portname)
                 if structured_ports:
                     # retrieve the reference for this structured type
                     # add it to the package
@@ -551,7 +557,7 @@ def _writeEntity(intf, needPck, lib, arch, useClauses, doc, stdLogicPorts, sigli
                     # expand the array
                     # and add assignments
                     # taking care of unsigned <> std_logic_vector conversions
-                    expandStructuredPort(stdLogicPorts, pl, portname, port)
+                    expandStructuredPort(stdLogicPorts, pl, portname, port, conditionally=True, portlist=portlist)
             else:
                 # must be a Signal
                 # change name to convert to std_logic, or
@@ -623,7 +629,7 @@ def _writeEntity(intf, needPck, lib, arch, useClauses, doc, stdLogicPorts, sigli
 
 
 def addStructuredPortEntry(stdLogicPorts, pl, portname, portsig):
-    trace.print('addStructuredPortEntry', stdLogicPorts, portname, repr(portsig))
+    trace.print('addStructuredPortEntry', stdLogicPorts, portname, repr(portsig), portsig.driven, portsig.read)
     r = _getRangeString(portsig)
     pt = st = _getTypeString(portsig)
     if stdLogicPorts:
@@ -657,7 +663,7 @@ def addStructuredPortEntry(stdLogicPorts, pl, portname, portsig):
 
 
 def expandStructuredPort(stdLogicPorts, pl, name, obj, conditionally=False, portlist=None):
-    trace.print('expanding', name, repr(obj))
+    trace.print('expanding', name, repr(obj), obj.driven, obj._read)
     if isinstance(obj, StructType):
         for attr, attrobj in vars(obj).items():
             if isinstance(attrobj, _Signal):
@@ -668,7 +674,8 @@ def expandStructuredPort(stdLogicPorts, pl, name, obj, conditionally=False, port
                         addstructuredport(stdLogicPorts, pl, name + attr, attrobj, portconversion=True)
                         portlist.append(attrobj)
                     else:
-                        expandStructuredPort(stdLogicPorts, pl, name + attr, attrobj, conditionally=conditionally, portlist=portlist)
+                        expandStructuredPort(stdLogicPorts, pl, name + attr, attrobj,
+                                             conditionally=conditionally, portlist=portlist)
                 else:
                     trace.print('Expanding', name, attr)
                     expandStructuredPort(stdLogicPorts, pl, name + attr, attrobj)
@@ -1291,8 +1298,9 @@ def _convertGens(genlist, siglist, memlist, lines):
     lines.append('\n')
     # shadow signal assignments
     for s in siglist:
-        #         trace.print(s._name, repr(s), s)
+#         print(s._name, repr(s), s)
         if hasattr(s, 'toVHDL'):
+#             print("hasattr(s, 'toVHDL')", id(s), repr(s))
             if s._read:
                 if s._name is None:
                     trace.print('signal target name missing for {}'.format(repr(s)))
@@ -1563,8 +1571,8 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.ind = self.ind[:-1]
 
     def visit_BinOp(self, node):
-        trace.push(message='visit_BinOp')
-        trace.print(node)
+        trace.push( message='visit_BinOp')
+        trace.print(node, node.op)
         if isinstance(node.op, (ast.LShift, ast.RShift)):
             self.shiftOp(node)
         elif isinstance(node.op, (ast.BitAnd, ast.BitOr, ast.BitXor)):
