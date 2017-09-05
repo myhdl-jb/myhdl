@@ -104,6 +104,7 @@ def enum(*names, **kwargs):
         __str__ = __repr__
 
         def __int__(self):
+#             print('EnumItemType int()')
             return int(self._val, 2)
 
         def __hex__(self):
@@ -153,21 +154,6 @@ def enum(*names, **kwargs):
                 raise TypeError("Type mismatch in enum item comparison")
             return self is not other
 
-#         # 29-05-2014 jb
-#         def __add__(self, other):
-#             print "1" , self, other
-#             if isinstance(other, EnumItemType):
-#                 return int(self._val) + int(other._val)
-#             else:
-#                 return int(self._val) + other
-#
-#         def __radd__(self, other):
-#             print "2", self, other , self._val
-#             if isinstance(other, EnumItemType):
-#                 return int(self._val) + int(other._val)
-#             else:
-#                 return int(self._val) + other
-
     class Enum(EnumType):
 
         def __init__(self, lnames, codedict, nrbits, encoding):
@@ -194,14 +180,14 @@ def enum(*names, **kwargs):
             return len(self._names)
 
         def __repr__(self):
-            return "<Enum: %s>" % ", ".join(names)
+            return "<Enum: [{}] {}>".format(self.__dict__['_encoding'], ", ".join(names))
 
         __str__ = __repr__
 
         def __eq__(self, other):
-            if (    self.__dict__['_nritems']  != other.__dict__['_nritems']) \
-                    or (self.__dict__['_names']    != other.__dict__['_names']) \
-                    or (self.__dict__['_nrbits']   != other.__dict__['_nrbits']) \
+            if (self.__dict__['_nritems'] != other.__dict__['_nritems']) \
+                    or (self.__dict__['_names'] != other.__dict__['_names']) \
+                    or (self.__dict__['_nrbits'] != other.__dict__['_nrbits']) \
                     or (self.__dict__['_encoding'] != other.__dict__['_encoding']):
                 return False
             return True

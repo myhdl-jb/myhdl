@@ -436,6 +436,10 @@ class _Signal(object):
         return self._nrbits
         # return len(self._val)
 
+    @property
+    def nbits(self):
+        return self._nrbits
+
     # indexing and slicing methods
 
     def __getitem__(self, key):

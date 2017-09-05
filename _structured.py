@@ -94,7 +94,7 @@ class Array(object):
 
     __slots__ = ('_array', '_next', '_init', '_val', '_name', '_dtype', '_nrbits',
                  '_driven', '_read', '_isshadow', '_used', '_initialised', '_isSignal',
-                 'element', 'levels', 'shape', 'sizes', 'size', '_setNextVal', 'attributes'
+                 'element', 'levels', 'shape', 'sizes', 'size', '_setNextVal', 'attributes',
                  )
 
     def __init__(self, shape, dtype, vector=None, attributes=None):
@@ -362,7 +362,8 @@ class Array(object):
 #             return repr(self._array)
 
     def __repr__(self):
-        rval = "Array{} of {}". format(self.shape, repr(self.element))
+        rval = "{}Array{} of {}". format('Shadow ' if self._isshadow else '',
+                                         self.shape, repr(self.element))
         if self._name:
             return self._name + ': ' + rval
         else:
@@ -396,7 +397,8 @@ class Array(object):
 
     @property
     def nbits(self):
-        return self.element._nrbits * self.size
+#         return self.element._nrbits * self.size
+        return self.element.nbits * self.size
 
     # get
     def __getitem__(self, *args, **kwargs):
@@ -702,54 +704,76 @@ class Array(object):
         assert self.size == todo, '{}.reshape({}) doesn\'t match the total number size'
 
 
-    def transform(self, shape, width):
+    def transform(self, shape, width, BIGENDIAN=False):
         ''' returns a Shadow Array '''
         # the general solution is to first make a large intbv
         # and then 'slice' this according the required new shape
         # all other approaches are at best cumbersome?
         if isinstance(self._dtype, intbv):
             newarray = Array(shape, Signal(intbv(0)[width:]))
-            intermediate = self.tointbv()
+            intermediate = self.tointbv(BIGENDIAN)
             newarray.fromintbv(intermediate)
             return newarray
         else:
             raise ValueError('{}: Can only transform Array of intbv'.format(repr(self)))
 
-
-    def fromintbv(self, vector, idx=0):
-        ''' replace the elements of an Array by SliceSignals '''
-        # a local function
-#         _o = 0
-
-        def _toA(a, _o):
-            ''' a local recursive function '''
-#             trace.print('  entering _toA', id(a), repr(a), id(vector), repr(vector), _o)
-            if len(a.shape) == 1:
-                if isinstance(a.element, _Signal):
-                    #                     trace.print('  len.(a.shape)==1', repr(a))
-                    for i in range(a.shape[0]):
-                        a._array[i] = vector(_o + len(a._dtype), _o)
-                        _o += len(a._dtype)
-#                     trace.print('  ', a)
-                elif isinstance(a.element, StructType):
-                    for i in range(a.shape[0]):
-                        a._array[i].fromintbv(vector, _o)
-                        trace.print(repr(a._array[i]))
-                        _o += a.element.nbits
-
-            else:
-                for i in range(a.shape[0]):
-                    _toA(a[i], _o)
+    def fromintbv(self, vector, BIGENDIAN=False):
+        ''' replace the elements of an Array by SliceSignals from an intbv '''
         # this the start
         trace.push(message='Array.fromintbv')
-        trace.print('start:', repr(self), str(self), self)
-        _toA(self, idx)
-        self._isshadow = True
-        trace.print('end:', repr(self), str(self), self)
+        trace.print('start:', repr(self))
+        assert len(vector) == self.nbits, '{}.fromintbv() needs same number of bits for source {} and destination{}' \
+                                            .format(repr(self), len(vector), self.nbits)
+        self._fromintbv(vector, self.nbits if BIGENDIAN else 0, BIGENDIAN)
+        trace.print('end:', repr(self))
         trace.pop()
-        # return 'self' to allow using in instantiation like:
-        #    inst = Array((,), Signal(intbv(0)[w:])).fromintbv(v)
-#         return self
+        return self
+
+    def _fromintbv(self, vector, idx=0, BIGENDIAN=False):
+        ''' 
+            replace the elements of an Array by SliceSignals
+            this is the function doing the work
+            and that is called by StructType too
+        '''
+        # a local function
+        def _toA(a, _o, _be):
+            ''' a local recursive function '''
+            if _be:
+                if len(a.shape) == 1:
+                    if isinstance(a.element, _Signal):
+                        for i in range(a.shape[0]):
+                            a._array[i] = vector(_o, _o - len(a._dtype))
+                            _o -= len(a._dtype)
+                    elif isinstance(a.element, StructType):
+                        for i in range(a.shape[0]):
+                            a._array[i]._fromintbv(vector, _o, True)
+                            trace.print(repr(a._array[i]))
+                            _o -= a.element.nbits
+
+                else:
+                    for i in range(a.shape[0]):
+                        _toA(a[i], _o, True)
+
+            else:
+                if len(a.shape) == 1:
+                    if isinstance(a.element, _Signal):
+                        for i in range(a.shape[0]):
+                            a._array[i] = vector(_o + len(a._dtype), _o)
+                            _o += len(a._dtype)
+                    elif isinstance(a.element, StructType):
+                        for i in range(a.shape[0]):
+                            a._array[i]._fromintbv(vector, _o, False)
+                            trace.print(repr(a._array[i]))
+                            _o += a.element.nbits
+
+                else:
+                    for i in range(a.shape[0]):
+                        _toA(a[i], _o, False)
+
+        # we delegate the work to a recursive function
+        trace.print(idx)
+        _toA(self, idx, BIGENDIAN)
+        self._isshadow = True
 
     def toVHDL(self):
         ''' 
@@ -869,7 +893,7 @@ class StructType(object):
                     continue
                 if isinstance(item, _Signal):
                     lnrbits += len(item)
-                else:
+                elif isinstance(item, (Array, StructType)):
                     lnrbits += item.nbits
 
             self._nrbits = lnrbits
@@ -921,45 +945,84 @@ class StructType(object):
 #         trace.print('collected', self._tisigs)
         return ConcatSignal(*reversed(self._tisigs))
 
-    def fromintbv(self, vector, idx=0):
+    def fromintbv(self, vector, BIGENDIAN=False):
         ''' split a (large) intbv into a StructType '''
         trace.push(message='StructType: fromintbv')
         trace.print('start: {} {}'.format(repr(self), repr(vector)))
         if self.sequencelist is None:
             raise ValueError('Need a sequencelist to correctly assign StructType members\n{}'.format(repr(self)))
 
-        for key in self.sequencelist:
-            if hasattr(self, key):
-                obj = vars(self)[key]
-                if isinstance(obj, _Signal):
-                    if isinstance(obj._val, intbv):
-                        # take care of unsigned/signed
-                        vars(self)[key] = vector(idx + obj._nrbits, idx)
-                        idx += obj._nrbits
-                        trace.print(repr(vars(self)[key]))
-                    else:
-                        # a bool
-                        vars(self)[key] = vector(idx)
-                        idx += 1
+        assert len(vector) == self._nrbits, '{}.fromintbv() needs same number of bits for source and destination'.format(repr(self))
 
-                elif isinstance(obj, Array):
-                    #                     trace.print('StructType.fromintbv(): Array', key, repr(obj), obj.nbits)
-                    obj.fromintbv(vector, idx)
-                    idx += obj.nbits
+        self._fromintbv(vector, self.nrbits - 1 if BIGENDIAN else 0, BIGENDIAN)
 
-                elif isinstance(obj, StructType):
-                    #                     trace.print('StructType.fromintbv(): StructType', key, repr(obj), obj.nbits)
-                    obj.fromintbv(vector, idx)
-                    idx += obj.nbits
-
-                elif isinstance(obj, integer_types):
-                    pass
-
-                else:
-                    pass
-        self._isshadow = True
         trace.print('end:', repr(self))
         trace.pop()
+
+    def _fromintbv(self, vector, idx=0, BIGENDIAN=False):
+        ''' split a (large) intbv into a StructType '''
+        if BIGENDIAN:
+            for key in self.sequencelist:
+                if hasattr(self, key):
+                    obj = vars(self)[key]
+                    if isinstance(obj, _Signal):
+                        if isinstance(obj._val, intbv):
+                            # take care of unsigned/signed
+                            vars(self)[key] = vector(idx, idx - obj._nrbits)
+                            idx -= obj._nrbits
+                            trace.print(repr(vars(self)[key]))
+                        else:
+                            # a bool
+                            vars(self)[key] = vector(idx)
+                            idx += 1
+
+                    elif isinstance(obj, Array):
+                        #                     trace.print('StructType.fromintbv(): Array', key, repr(obj), obj.nbits)
+                        obj._fromintbv(vector, idx, True)
+                        idx -= obj.nbits
+
+                    elif isinstance(obj, StructType):
+                        #                     trace.print('StructType.fromintbv(): StructType', key, repr(obj), obj.nbits)
+                        obj._fromintbv(vector, idx, True)
+                        idx -= obj.nbits
+
+                    elif isinstance(obj, integer_types):
+                        pass
+
+                    else:
+                        pass
+        else:
+            for key in self.sequencelist:
+                if hasattr(self, key):
+                    obj = vars(self)[key]
+                    if isinstance(obj, _Signal):
+                        if isinstance(obj._val, intbv):
+                            # take care of unsigned/signed
+                            vars(self)[key] = vector(idx + obj._nrbits, idx)
+                            idx += obj._nrbits
+                            trace.print(repr(vars(self)[key]))
+                        else:
+                            # a bool
+                            vars(self)[key] = vector(idx)
+                            idx += 1
+
+                    elif isinstance(obj, Array):
+                        #                     trace.print('StructType.fromintbv(): Array', key, repr(obj), obj.nbits)
+                        obj._fromintbv(vector, idx, False)
+                        idx += obj.nbits
+
+                    elif isinstance(obj, StructType):
+                        #                     trace.print('StructType.fromintbv(): StructType', key, repr(obj), obj.nbits)
+                        obj._fromintbv(vector, idx, False)
+                        idx += obj.nbits
+
+                    elif isinstance(obj, integer_types):
+                        pass
+
+                    else:
+                        pass
+
+        self._isshadow = True
 
     def toVHDL(self):
         ''' 
@@ -983,10 +1046,12 @@ class StructType(object):
         return lines
 
     def __repr__(self):
-        if self._isshadow:
-            rval = 'Shadow of StructType {} {}'.format(self.__class__.__name__, vars(self))
-        else:
-            rval = 'StructType {} {}'.format(self.__class__.__name__, vars(self))
+#         if self._isshadow:
+#             rval = 'Shadow of StructType {} {}'.format(self.__class__.__name__, vars(self))
+#         else:
+#             rval = 'StructType {} {}'.format(self.__class__.__name__, vars(self))
+        rval = '{}StructType {} {}'.format('Shadow of ' if self._isshadow else '',
+                                           self.__class__.__name__, vars(self))
         if self._name is None:
             return rval
         else:
