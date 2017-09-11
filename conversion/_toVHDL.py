@@ -338,7 +338,7 @@ class _ToVHDLConvertor(object):
 #         print(repr(memlist))
         for m in memlist:
             if m.mem in portlist:
-                print('gotcha', m, m.mem, m.mem.driven, m.mem.read)
+#                 print('gotcha', m, m.mem, m.mem.driven, m.mem.read)
                 memlist.remove(m)
 
         updatedrivenread(memlist, portlist)
@@ -1045,7 +1045,7 @@ def _writeSigDecls(intf, siglist, memlist):
                 else:
                     sl.append("\tsignal {} : {};" .format(m.name, m._typedef))
             else:
-                print('{} has attributes: {}'.format(m.mem, m.mem.attributes))
+                trace.print('{} has attributes: {}'.format(m.mem, m.mem.attributes))
                 sl.append("\tshared variable {} : {};" .format(m.name, m._typedef))
 
         elif isinstance(m.mem, list):
@@ -1571,7 +1571,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         self.ind = self.ind[:-1]
 
     def visit_BinOp(self, node):
-        trace.push( message='visit_BinOp')
+        trace.push(message='visit_BinOp')
         trace.print(node, node.op)
         if isinstance(node.op, (ast.LShift, ast.RShift)):
             self.shiftOp(node)
@@ -1795,7 +1795,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 if node.attr == 'next':
                     # check if we have a shared variable
                     if obj.attributes is not None:
-                        print('setting SigAss to False')
+                        trace.print('setting SigAss to False')
                         self.SigAss = False
 
             if isinstance(obj, (_Signal, intbv)):
@@ -2626,7 +2626,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 trace.print(repr(elt))
                 self.visit(elt)
                 if i < len(node.elts) - 1:
-                    self.write(', ')
+                    self.write(' & ')
             self.write(')')
             trace.pop()
         else:
@@ -3027,7 +3027,7 @@ class _ConvertFunctionVisitor(_ConvertVisitor):
                 obj, name, dir="in", constr=False, endchar="")
 
     def visit_FunctionDef(self, node):
-        print(repr(node))
+        trace.print(repr(node))
         if self.tree.name not in functiondefs:
             functiondefs.append(self.tree.name)
             self.write("\tfunction %s" % self.tree.name)
@@ -3050,7 +3050,7 @@ class _ConvertFunctionVisitor(_ConvertVisitor):
             self.writeline()
             self.write("begin")
             self.indent()
-            print('visiting node.body', repr(node.body))
+            trace.print('visiting node.body', repr(node.body))
             self.visit_stmt(node.body)
             self.dedent()
             self.writeline()
@@ -3708,7 +3708,7 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
                 #                 trace.print('upper, lower', upper, lower)
                 node.vhd = vhd_array((upper - lower), node.obj.element)
 
-            print(lower, upper)
+            trace.print(lower, upper)
 #             if isinstance(node.obj._dtype, bool):
 #                 node.vhd = vhd_std_logic()
 #             elif isinstance(node.obj._dtype, intbv):

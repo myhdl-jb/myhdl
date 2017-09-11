@@ -443,6 +443,10 @@ class _Signal(object):
     def nbits(self):
         return self._nrbits
 
+    @property
+    def signed(self):
+        return self._min is not None and self._min < 0
+
     # indexing and slicing methods
 
     def __getitem__(self, key):
@@ -646,23 +650,23 @@ class _Signal(object):
 
     # continues assignment support
     def assign(self, sig):
- 
+
         self.driven = "wire"
- 
+
         def genFunc():
             while 1:
                 self.next = sig._val
                 yield sig
- 
+
         self._waiter = _SignalWaiter(genFunc())
- 
+
         def toVHDL():
             print('Signal toVHDL', self.sig)
             return "%s <= %s;" % (self._name, sig._name)
- 
+
         def toVerilog():
             return "assign %s = %s;" % (self._name, sig._name)
- 
+
         self.toVHDL = toVHDL
         self.toVerilog = toVerilog
 

@@ -1319,7 +1319,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             node.obj = bool()
         else:
             node.obj = bool()  # XXX default
-        trace.print( node, node.value, repr(node.value.obj), repr(node.obj))
+        trace.print(node, node.value, repr(node.value.obj), repr(node.obj))
         trace.pop()
 
     def visit_Tuple(self, node):

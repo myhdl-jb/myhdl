@@ -69,13 +69,16 @@ class _AlwaysComb(_Always):
             if isinstance(reg, _Signal):
                 senslist.append(reg)
             elif isinstance(reg, StructType):
-                #                 print('senslistexpand StructType', repr(reg))
+#                 print('senslistexpand StructType', repr(reg))
                 refs = vars(reg)
+#                 print(refs)
                 for k in refs:
+#                     print(refs[k])
                     if isinstance(refs[k], _Signal):
                         senslist.append(refs[k])
                     elif isinstance(refs[k], (list, Array)):
-                        senslistexpand(senslist, refs[k])
+                        if len(refs[k]) != 0:
+                            senslistexpand(senslist, refs[k])
                     elif isinstance(refs[k], StructType):
                         senslistexpand(senslist, refs[k])
                     else:
