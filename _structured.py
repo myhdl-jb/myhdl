@@ -547,8 +547,11 @@ class Array(object):
                     idxh += 1
                     idxl = idxh
                 elif isinstance(subval, integer_types):
-                    # must infer size ...
-                    raise ValueError('Array .next: don\'t handle integer in tuple')
+                    # must infer size?
+                    setnext(self[idxh], subval)
+                    idxh += 1
+                    idxl = idxh
+#                     raise ValueError('Array .next: don\'t handle integer in tuple')
                 elif isinstance(subval, tuple):
                     raise ValueError('Array .next: don\'t handle tuple(s) in tuple')
                 else:

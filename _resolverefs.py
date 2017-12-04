@@ -82,7 +82,7 @@ class _AttrRefTransformer(ast.NodeTransformer):
 
 # TODO: may have to resolve down ...
         elif isinstance(obj, Array):
-            print(obj, node.attr)
+#             print(obj, node.attr)
             return node
 
 # TODO: must resolve down

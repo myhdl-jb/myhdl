@@ -371,7 +371,8 @@ class _Signal(object):
         else:
             raise TypeError("Expected int or intbv, got %s" % type(val))
         self._next._val = lval
-        self._next._handleBounds(self)
+#         self._next._handleBounds(self)
+        self._next._handleBounds()
 
     def _setNextNonmutable(self, val):
         if not isinstance(val, self._type):
