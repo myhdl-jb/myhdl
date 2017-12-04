@@ -26,7 +26,7 @@ from ._compat import long
 class modbv(intbv):
     __slots__ = []
 
-    def _handleBounds(self):
+    def _handleBounds(self, sig=None):
         lo, hi, val = self._min, self._max, self._val
         if lo is not None:
             if val < lo or val >= hi:

@@ -75,6 +75,7 @@ def _makeName(n, prefixes):
 
 
 def _analyzeSigs(hierarchy, hdl='Verilog'):
+    trace.push(False, '_analyzeSigs')
     curlevel = 0
     siglist = []
     memlist = []
@@ -143,6 +144,7 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
                 continue
 #             m.name = _makeName(n, prefixes, namedict)
             m.name = _makeName(n, prefixes)
+            trace.print('_analyzeSigs level {}: {} {} {}'.format(level, m.name, n, repr(m)))
             if isinstance(m.mem, (Array, StructType)):
                 m.mem._name = m.name
 #             print(m)
@@ -163,7 +165,7 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
         expandsignalnames(m.mem, m.name, 0, 0, openp, closep)
         trace.pop()
 
-
+    trace.pop()
     return siglist, memlist
 
 
@@ -1102,7 +1104,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             self.refStack.add(n)
 
     def getName(self, node):
-        trace.push(None, 'getName')
+        trace.push(False, 'getName')
         n = node.id
         node.obj = None
         if n not in self.refStack:
@@ -1597,7 +1599,7 @@ def expandinterface(v, name, obj):
 
 
 def _analyzeTopFunc(top_inst, func, *args, **kwargs):
-
+    trace.push(False, '_analyzeTopFunc')
     trace.print('_analyzeTopFunc')
     tree = _makeAST(func)
     v = _AnalyzeTopFuncVisitor(func, tree, *args, **kwargs)
@@ -1620,6 +1622,7 @@ def _analyzeTopFunc(top_inst, func, *args, **kwargs):
             # must be an interface object (probably ...?)
             expandinterface(v, name, obj)
 
+    trace.pop()
     return v
 
 

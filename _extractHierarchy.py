@@ -54,7 +54,7 @@ class _error:
 
 _error.NoInstances = "No instances found"
 _error.InconsistentHierarchy = "Inconsistent hierarchy - are all instances returned ?"
-_error.InconsistentToplevel = "Inconsistent top level %s for %s - should be 1 (are you missing an '@always[_comb | _seq]' decorator?)"
+_error.InconsistentToplevel = "Inconsistent top level %s for %s - should be 1\n(are you missing an '@always[_comb | _seq]' decorator or a pair of ()?)"
 
 
 class _Instance(object):
@@ -107,8 +107,12 @@ class _MemInfo(object):
         self.usagecount = 1
 
     def __repr__(self):
-        rval = "_MemInfo {} of {}, used: {}, driven: {}, read: {}".format(self.depth, repr(self.elObj), self._used,
-                                                                          self._driven, self._read)
+        if isinstance(self.mem, (Array, StructType)):
+            rval = "_MemInfo {} , used: {}, driven: {}, read: {}".format(repr(self.mem), self._used,
+                                                                              self.mem.driven, self._read)
+        else:
+            rval = "_MemInfo {} of {}, used: {}, driven: {}, read: {}".format(self.depth, repr(self.elObj), self._used,
+                                                                              self._driven, self._read)
         if self.name is not None:
             return self.name + ' ' + rval
         else:
@@ -117,18 +121,22 @@ class _MemInfo(object):
     # support for the 'driven' attribute
     @property
     def driven(self):
-        #         if isinstance(self.mem, (Array, StructType)):
-        #             return self.mem.driven
-        #         else:
-        #             return self._driven
-        return self._driven
+        if isinstance(self.mem, (Array, StructType)):
+            return self.mem.driven
+        else:
+            return self._driven
+#         return self._driven
 
     @driven.setter
     def driven(self, val):
+        #print('setting ({}).driven to {}'.format(self, val))
         if not val in ("reg", "wire", True):
-            raise ValueError(
-                'Expected value "reg", "wire", or True, got "%s"' % val)
-        self._driven = val
+            raise ValueError('Expected value "reg", "wire", or True, got "%s"' % val)
+        #print(isinstance(self.mem, (Array, StructType)))
+        if isinstance(self.mem, (Array, StructType)):
+            self.mem.driven = val
+        else:
+            self._driven = val
 
 
 def _getMemInfo(mem):
@@ -459,7 +467,7 @@ class _HierExtr(object):
 #                                     trace.print(repr(element))
 
                         elif isinstance(v, Array):
-                            trace.print('level {} Array {} {}'.format(self.level, n, repr(v)))
+                            trace.print('level {} Array {} {} {} {}'.format(self.level, n, repr(v), v.driven, v._read))
                             # only enter 'top' Arrays, i.e. not Arrays that are
                             # a member of StructType(s)
                             if '.' not in n:

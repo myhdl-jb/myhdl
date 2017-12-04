@@ -329,17 +329,25 @@ class _ToVHDLConvertor(object):
             fileheaderlines.append(_writeCustomPackage(intf))
 
         headerlines = _writeModuleHeader(intf, needPck, lib, useClauses)
-        entitylines = _writeEntity(intf, needPck, lib, arch, useClauses, doc,
+        entitylines, portlist = _writeEntity(intf, needPck, lib, arch, useClauses, doc,
                                    stdLogicPorts, siglist, self.standard,
-                                   self.structured_ports, portlist)
+                                   self.structured_ports )
+#         print('-----------------------------')
 #         for port in portlist:
 #             print(port)
+#
+#         print('-----------------------------')
+#         for sig in siglist:
+#             print(sig)
+
         # shortcut to remove input port arrays from the memlist
-#         print(repr(memlist))
+#         print('-----------------------------')
         for m in memlist:
+#             print(m, m.mem)
             if m.mem in portlist:
-#                 print('gotcha', m, m.mem, m.mem.driven, m.mem.read)
-                memlist.remove(m)
+#                 print('gotcha')
+#                 memlist.remove(m)
+                m._used = False
 
         updatedrivenread(memlist, portlist)
         typedefines = _writeTypeDefs(memlist)
@@ -517,10 +525,11 @@ def _writeModuleHeader(intf, needPck, lib, useClauses):
     return lines
 
 
-def _writeEntity(intf, needPck, lib, arch, useClauses, doc, stdLogicPorts, siglist, standard, structured_ports, portlist):
+def _writeEntity(intf, needPck, lib, arch, useClauses, doc, stdLogicPorts, siglist, standard, structured_ports):
     trace.push(message='_writeEntity')
+    portlist = []
     lines = []
-    lines.append("entity %s is" % intf.name)
+    lines.append("entity %s is\n" % intf.name)
     del portConversions[:]
     del suppressedWarnings[:]
     del constantlist[:]
@@ -547,6 +556,7 @@ def _writeEntity(intf, needPck, lib, arch, useClauses, doc, stdLogicPorts, sigli
                     # taking care of unsigned <> std_logic_vector conversions
                     expandStructuredPort(stdLogicPorts, pl, portname, port)
             elif isinstance(port, Array):
+                trace.push(False, 'port is Array')
                 trace.print('Port: ', portname)
                 if structured_ports:
                     # retrieve the reference for this structured type
@@ -558,6 +568,7 @@ def _writeEntity(intf, needPck, lib, arch, useClauses, doc, stdLogicPorts, sigli
                     # and add assignments
                     # taking care of unsigned <> std_logic_vector conversions
                     expandStructuredPort(stdLogicPorts, pl, portname, port, conditionally=True, portlist=portlist)
+                trace.pop()
             else:
                 # must be a Signal
                 # change name to convert to std_logic, or
@@ -625,7 +636,7 @@ def _writeEntity(intf, needPck, lib, arch, useClauses, doc, stdLogicPorts, sigli
     lines.append(doc)
     lines.append("\narchitecture %s of %s is\n" % (arch, intf.name))
     trace.pop()
-    return lines
+    return lines, portlist
 
 
 def addStructuredPortEntry(stdLogicPorts, pl, portname, portsig):
@@ -744,6 +755,7 @@ def _writeConstants(memlist):
             continue
         # not driven, but _read
         # drill down into the list
+#         print(m)
         cl.append("\tconstant {} : {} := ( {} );\n" .format(m.name, m._typedef, expandconstant(m.mem)))
         constantlist.append(m.name)
     for l in sortalign(cl, sort=True):
@@ -755,7 +767,29 @@ def _writeConstants(memlist):
 
 def expandconstant(c):
     if isinstance(c, StructType):
-        pass
+        s = ''
+        for key in c.sequencelist:
+            if hasattr(c, key):
+                obj = vars(c)[key]
+                s = ''.join((s, '{} => '.format(key)))
+                if isinstance(obj, _Signal):
+                    if isinstance(obj._val, bool):
+                        s = ''.join((s, '{}, '.format('\'1\'' if obj else '\'0\'')))
+                    else:
+                        # intbv
+                        s = ''.join((s, ' to_{}signed( {}, {} ){}'.format(
+                            '' if obj._min < 0 else 'un', obj, obj._nrbits, ', ')))
+                elif isinstance(obj, integer_types):
+                    s = ''.join((s, '{}, '.format(obj) ))
+
+            elif isinstance(obj, Array):
+                s = ''.join((s, '({})'.format(expandconstant(obj))))
+
+            elif isinstance(obj, StructType):
+                s = ''.join((s, '({})'.format(expandconstant(obj))))
+
+        return s[:-2]
+
     elif isinstance(c[0], (list, Array)):
         size = c.shape[0] if isinstance(c, Array) else len(c)
         s = ''
@@ -769,7 +803,12 @@ def expandconstant(c):
         size = c.shape[0] if isinstance(c, Array) else len(c)
         s = ''
         if isinstance(c[0], StructType):
-            pass
+            for i in range(size):
+                s = ''.join((s, '({})'.format(expandconstant(c[i]))))
+                if i < size - 1:
+                    s = ''.join((s, ',\n'))
+            s = ''.join((s, '\n);'))
+
         elif isinstance(c[0]._val, bool):
             for i in range(size):
                 s = ''.join((s, '{}, '.format('\'1\'' if c[i] else '\'0\'')))
@@ -777,7 +816,7 @@ def expandconstant(c):
             # intbv
             for i in range(size):
                 s = ''.join((s, ' to_{}signed( {}, {} ){}'.format(
-                    '' if c[i]._min < 0 else 'un', c[i], c[i]._nrbits, ', ')))
+                    '' if c[i]._min < 0 else 'un', c[i]._val, c[i]._nrbits, ', ')))
         return s[:-2]
 
 
@@ -819,6 +858,7 @@ def expandarray(c):
         return s[:-2]
 
 
+
 def addstructuredtypedef(obj, targetlist, otherlist=None):
     ''' adds the typedefs for a StructType
         possibly descending down
@@ -856,6 +896,9 @@ def addstructuredtypedef(obj, targetlist, otherlist=None):
             elif isinstance(mobj, StructType):
                 #                 entries.append( "\t    {} : \\{}\\;\n".format(key, mobj.ref()))
                 entries.append("\t\t{} : {};\n".format(key, mobj.ref()))
+            elif isinstance(mobj, integer_types):
+                entries.append("\t\t{} : integer;\n".format(key))
+
 
         # align-format the contents
 #         for line in sortalign(entries, sort=False):
@@ -896,6 +939,7 @@ def addstructuredtypedef(obj, targetlist, otherlist=None):
 
 
 def updatedrivenread(memlist, portlist):
+    trace.push(False, 'updatedrivenread')
     for m in memlist:
         if not m._used or m.usagecount == 0:
             continue
@@ -904,12 +948,12 @@ def updatedrivenread(memlist, portlist):
             pass
         else:
             # infer attributes for the case of named signals in a list
-            trace.print('inferring {:30} {:4} {:4} {}'.format(m.name, m._driven, m._read, repr(m.mem)))
+            trace.print('inferring {:30} {:4} {:4} {}'.format(m.name, m.driven, m._read, repr(m.mem)))
             trace.push(message='inferattrs')
             inferattrs(m, m.mem)
             trace.pop()
-            trace.print('\tinferred: driven: {:4} read: {:4}'.format(m._driven, m._read))
-
+            trace.print('\tinferred: driven: {:4} read: {:4}'.format(m.driven, m._read))
+    trace.pop()
 
 def _writeTypeDefs(memlist):
     lines = []

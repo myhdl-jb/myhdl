@@ -217,14 +217,19 @@ def _inferWaiter(gen):
     v.visit(root)
     if v.kind == _kind.EDGE_TUPLE:
         return _EdgeTupleWaiter(gen)
+    
     if v.kind == _kind.SIGNAL_TUPLE:
         return _SignalTupleWaiter(gen)
+    
     if v.kind == _kind.DELAY:
         return _DelayWaiter(gen)
+    
     if v.kind == _kind.EDGE:
         return _EdgeWaiter(gen)
+    
     if v.kind == _kind.SIGNAL:
         return _SignalWaiter(gen)
+    
     # default
     return _Waiter(gen)
 
