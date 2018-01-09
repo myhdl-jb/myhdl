@@ -64,7 +64,8 @@ from myhdl.tracejb import Tracing
 
 trace = Tracing(False, source='_toVHDL')
 
-_version = myhdl.__version__.replace('.', '')
+_version, _, _ = myhdl.__version__.partition('-')
+_version = _version.replace('.', '')
 _shortversion = _version.replace('dev', '')
 _converting = 0
 _profileFunc = None
@@ -656,7 +657,7 @@ def addStructuredPortEntry(stdLogicPorts, pl, portname, portsig):
             portConversions.append("\t%s <= %s(%s);" % (portname, pt, portsig._name))
         else:
             portConversions.append("\t%s <= %s;" % (portname, portsig._name))
-        portsig._read = True
+#         portsig._read = True
     else:
         # default to being read ...
         # we don't support inout ports ...
@@ -666,19 +667,26 @@ def addStructuredPortEntry(stdLogicPorts, pl, portname, portsig):
             portConversions.append("\t%s <= %s(%s);" % (portsig._name, st, portname))
         else:
             portConversions.append("\t%s <= %s;" % (portsig._name, portname))
-        portsig._driven = True
+#         portsig._driven = True
 #     else:
 #         # silently discard neither driven nor read members
 #         trace.print('neither driven nor read?')
 #         pass
 
 
-def expandStructuredPort(stdLogicPorts, pl, name, obj, conditionally=False, portlist=None):
-    trace.print('expanding', name, repr(obj), obj.driven, obj._read)
+def expandStructuredPort(stdLogicPorts, pl, name, obj, conditionally=False, portlist=None, level=-1):
+    level += 1
+    print('{0}Expanding {1}\n{0}{2}\n{0}driven: {3}, read: {4}'.format('\t' * level, name, repr(obj), obj.driven, obj._read))
     if isinstance(obj, StructType):
         for attr, attrobj in vars(obj).items():
+            if isinstance(attrobj, (_Signal, Array, StructType)):
+                attrobj._driven = obj.driven
+                attrobj._read = obj._read
+
             if isinstance(attrobj, _Signal):
+                print('{}Final: {} {}'.format('\t' * level, name, attr))
                 addStructuredPortEntry(stdLogicPorts, pl, ''.join((name, attr)), attrobj)
+                
             elif isinstance(attrobj, StructType):
                 if conditionally:
                     if len(attrobj.reversedirections) == 0:
@@ -686,29 +694,31 @@ def expandStructuredPort(stdLogicPorts, pl, name, obj, conditionally=False, port
                         portlist.append(attrobj)
                     else:
                         expandStructuredPort(stdLogicPorts, pl, name + attr, attrobj,
-                                             conditionally=conditionally, portlist=portlist)
+                                             conditionally=conditionally, portlist=portlist, level=level)
                 else:
-                    trace.print('Expanding', name, attr)
-                    expandStructuredPort(stdLogicPorts, pl, name + attr, attrobj)
+                    print('{}Expanding StructType: {} {}'.format( '\t' * level, name, attr))
+                    expandStructuredPort(stdLogicPorts, pl, name + attr, attrobj, level=level)
+                    
             elif isinstance(attrobj, Array):
                 if conditionally:
                     addstructuredport(stdLogicPorts, pl, name + attr, attrobj, portconversion=True)
                     portlist.append(attrobj)
                 else:
-                    trace.print('Expanding', name, attr)
-                    expandStructuredPort(stdLogicPorts, pl, name + attr, attrobj)
+                    print('{}Expanding Array: {} {}'.format( '\t' * level, name, attr))
+                    expandStructuredPort(stdLogicPorts, pl, name + attr, attrobj, level=level)
             # else EnumItemType, int, str, ...
+
     elif isinstance(obj, Array):
         name += '_'
         if isinstance(obj[0], Array):
             # go down
             for i in len(obj):
-                expandStructuredPort(stdLogicPorts, pl, name + str(i), obj[i])
+                expandStructuredPort(stdLogicPorts, pl, name + str(i), obj[i], level=level)
         else:
             # lowest level of array
             if isinstance(obj.element, StructType):
                 for i in range(len(obj)):
-                    expandStructuredPort(stdLogicPorts, pl, name + str(i), obj[i])
+                    expandStructuredPort(stdLogicPorts, pl, name + str(i), obj[i], level=level)
             else:
                 # Signal
                 for i in range(len(obj)):
@@ -725,7 +735,7 @@ def addstructuredport(stdLogicPorts, pl, portname, port, portconversion=False):
         pl.append("\n\t\t{} : out {};".format(portname, port.ref()))
         if portconversion:
             portConversions.append("\t{} <= {};".format(portname, port._name))
-        port._read = True
+#         port._read = True
     else:
         # default to being read ...
         # we don't support inout ports ...
@@ -734,7 +744,7 @@ def addstructuredport(stdLogicPorts, pl, portname, port, portconversion=False):
         if portconversion:
             portConversions.append("\t{} <= {};".format(port._name, portname))
         port._read = True
-        port.driven = True
+#         port.driven = True
 
 
 def _writeFuncDecls():
@@ -897,7 +907,8 @@ def addstructuredtypedef(obj, targetlist, otherlist=None):
                 #                 entries.append( "\t    {} : \\{}\\;\n".format(key, mobj.ref()))
                 entries.append("\t\t{} : {};\n".format(key, mobj.ref()))
             elif isinstance(mobj, integer_types):
-                entries.append("\t\t{} : integer;\n".format(key))
+                pass
+#                 entries.append("\t\t{} : integer;\n".format(key))
 
 
         # align-format the contents

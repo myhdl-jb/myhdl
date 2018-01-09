@@ -607,7 +607,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         trace.pop()
 
     def getAttr(self, node):
-        trace.push(None, 'getAttr')
+        trace.push(False, 'getAttr')
         self.visit(node.value)
         node.obj = None
         if isinstance(node.value, ast.Name):
@@ -1393,19 +1393,19 @@ class _AnalyzeBlockVisitor(_AnalyzeVisitor):
         self.refStack.pop()
 
     def visit_Module(self, node):
-        trace.push(message='visit_Module')
+        trace.push(False, message='visit_Module {}'.format(node.name))
         trace.print('node, node.body:', node, node.body)
         for t in node.body:
             trace.print(t.name)
         self.generic_visit(node)
         for n in self.tree.outputs:
             s = self.tree.sigdict[n]
-            trace.print('n, s:', repr(n), repr(s))
+            trace.print('n, s:', repr(n), repr(s), s.driven)
             for item in self.tree.sigdict.keys():
-                trace.print(repr(item), repr(self.tree.sigdict[item]), id(self.tree.sigdict[item]))
+                trace.print(' item:', repr(item), repr(self.tree.sigdict[item]), self.tree.sigdict[item].driven, id(self.tree.sigdict[item]))
             if s.driven:
                 var2 = [x for x in globals().values() if id(x) == id(self.tree.sigdict[item])]
-                self.raiseError(node, _error.SigMultipleDriven, '{} {} <> {}'.format(n, self.tree.inputs, var2))
+                self.raiseError(node, _error.SigMultipleDriven, '{}: {} {} <> {}'.format(node.name, n, self.tree.inputs, var2))
             s.driven = "reg"
         for n in self.tree.inputs:
             s = self.tree.sigdict[n]

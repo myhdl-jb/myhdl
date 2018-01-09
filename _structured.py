@@ -412,7 +412,6 @@ class Array(object):
         item = self._array.__getitem__(*args, **kwargs)
 #         trace.print('item:', repr(item))
         if isinstance(item, list):
-            #             trace.print('{}: __getitem__ should never return a list?'.format(self._name))
             return Array(item, self)
         else:
             return item
@@ -421,7 +420,8 @@ class Array(object):
         sliver = self._array.__getslice__(*args, **kwargs)
 #         trace.print('sliver', sliver)
         if isinstance(sliver, list):
-            return Array(sliver, self)
+            print('__getslice__: sliver:', repr(sliver))
+            return Array(sliver, None)
         else:
             #             trace.print('__getslice__ should always return a list?')
             return sliver
@@ -814,8 +814,9 @@ class Array(object):
         _tovhdl(self, self._name)
         return lines
 
-    def tointbv(self, BIGENDIAN=False):
-        ''' concatenates all elements '''
+    def _collect(self):
+        harvest = []
+
         def collect(obj, _h):
             ''' a local recursive function '''
             if len(obj.shape) == 1:
@@ -831,6 +832,12 @@ class Array(object):
                 for i in range(obj.shape[0]):
                     collect(obj[i], _h)
 
+        collect(self, harvest)
+        return harvest
+
+    def tointbv(self, BIGENDIAN=False):
+        ''' concatenates all elements '''
+
 #         harvest = []
 #         collect(self, harvest)
 #         val = 0
@@ -839,8 +846,7 @@ class Array(object):
 #             val += (val << hh._nrbits) + hh._val
 #         return Signal(intbv(val, _nrbits=self.element._nrbits * len(harvest))
         if self.size > 1:
-            harvest = []
-            collect(self, harvest)
+            harvest = self._collect()
             if not BIGENDIAN:
                 return ConcatSignal(*reversed(harvest))
             else:
@@ -914,9 +920,9 @@ class StructType(object):
         # always defined
         return self._nrbits
 
-    def tointbv(self):
-        ''' returns a Signal of the concatenated bits '''
-        self._tisigs = []
+    def _collect(self):
+        ''' collects all elements of a structured type, linearly '''
+        _tisigs = []
 
         def collect(obj):
             ''' using a local routine to do the work '''
@@ -935,29 +941,35 @@ class StructType(object):
                 # must nest structured types
                 if isinstance(item, StructType):
                     #                     trace.print('calling StructType.tointbv()', item)
-                    ati = item.tointbv()
-#                     trace.print(repr(ati))
-                    self._tisigs.append(ati)
+                    ati = item._collect()
+#                     print(repr(ati))
+                    _tisigs.extend(ati)
 #                     self._tisigs.extend(collect(item))
                 elif isinstance(item, Array):
-                    #                     trace.print('calling Array.tointbv()', item)
-                    ati = item.tointbv()
-#                     trace.print(repr(ati))
-                    self._tisigs.append(ati)
+#                     print('calling Array.tointbv()', item)
+                    ati = item._collect()
+#                     print(repr(ati))
+                    _tisigs.extend(ati)
 #                     trace.print('called Array.tointbv()')
 
                 elif isinstance(item, _Signal):
-                    self._tisigs.append(item)
+                    _tisigs.append(item)
+
                 elif isinstance(item, (int, long, str)):
                     pass
                 else:
                     pass
 #             trace.print('collecting', self._tisigs)
-
-#         trace.print('StructType: tointbv', repr(self))
         collect(self)
-#         trace.print('collected', self._tisigs)
-        return ConcatSignal(*reversed(self._tisigs))
+        return _tisigs
+
+    def tointbv(self):
+        ''' returns a Signal of the concatenated bits '''
+#         print('StructType: tointbv', repr(self))
+        tisigs = self._collect()
+#         print('collected', tisigs)
+        # only reverse at the very end
+        return ConcatSignal(*reversed(tisigs))
 
     def fromintbv(self, vector, BIGENDIAN=False):
         ''' split a (large) intbv into a StructType '''
@@ -966,9 +978,9 @@ class StructType(object):
         if self.sequencelist is None:
             raise ValueError('Need a sequencelist to correctly assign StructType members\n{}'.format(repr(self)))
 
-        assert len(vector) == self._nrbits, '{}.fromintbv() needs same number of bits for source and destination'.format(repr(self))
+        assert len(vector) == self.nbits, '{}.fromintbv() needs same number of bits for source and destination'.format(repr(self))
 
-        self._fromintbv(vector, self.nrbits - 1 if BIGENDIAN else 0, BIGENDIAN)
+        self._fromintbv(vector, self.nbits - 1 if BIGENDIAN else 0, BIGENDIAN)
 
         trace.print('end:', repr(self))
         trace.pop()
@@ -988,7 +1000,7 @@ class StructType(object):
                         else:
                             # a bool
                             vars(self)[key] = vector(idx)
-                            idx += 1
+                            idx -= 1
 
                     elif isinstance(obj, Array):
                         #                     trace.print('StructType.fromintbv(): Array', key, repr(obj), obj.nbits)
@@ -1049,6 +1061,7 @@ class StructType(object):
 #         print('StructType: toVHDL {}', repr(self))
         lines = []
         if self._isshadow:
+#             print('StructType: toVHDL {}', repr(self))
             #         trace.print('Emitting StructType Shadow VHDL code for {}'.format(self._name))
             for key in self.sequencelist:
                 if hasattr(self, key):
@@ -1058,7 +1071,8 @@ class StructType(object):
                     elif isinstance(obj, (Array, StructType)):
                         lines.extend(obj.toVHDL())
                     elif isinstance(obj, integer_types):
-                        lines.append('{} : integer;'.format(key))
+                        pass
+#                         lines.append('{} : integer;'.format(key))
 
         return lines
 
@@ -1318,10 +1332,7 @@ class StructType(object):
     # support for the 'next' attribute
     @property
     def next(self):
-        #         # must drill down into the list ?
-        #         _siglist.append(self)
-        #         return self._next
-        # this is only a placeholder?
+        # this is only a placeholder
         pass
 
     @next.setter
