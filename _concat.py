@@ -54,7 +54,7 @@ def concat(base, *args):
         basewidth = 0
         val = 0
         largs = [arg for arg in base]
-        print(largs)
+#         print(largs)
     else:
         raise TypeError("concat: inappropriate first argument type: %s"
                         % type(base))

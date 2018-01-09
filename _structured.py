@@ -175,7 +175,12 @@ class Array(object):
                                     a.append(intbv(shape[i], min=self._dtype._min, max=self._dtype._max))
                                 elif isinstance(self._dtype, bool):
                                     a.append(bool(shape[i]))
+                                elif isinstance(self._dtype, StructType):
+                                    t = self._dtype.copy(shape[i])
+                                    a.append(t)
+                                    del t
                                 else:
+                                # ?? elif self._dtype is None:
                                     # a structured object?
                                     # as it already is in a list we can use
                                     # that 'element' no need to 'copy'
@@ -407,7 +412,6 @@ class Array(object):
         item = self._array.__getitem__(*args, **kwargs)
 #         trace.print('item:', repr(item))
         if isinstance(item, list):
-            #             trace.print('{}: __getitem__ should never return a list?'.format(self._name))
             return Array(item, self)
         else:
             return item
@@ -416,7 +420,8 @@ class Array(object):
         sliver = self._array.__getslice__(*args, **kwargs)
 #         trace.print('sliver', sliver)
         if isinstance(sliver, list):
-            return Array(sliver, self)
+            print('__getslice__: sliver:', repr(sliver))
+            return Array(sliver, None)
         else:
             #             trace.print('__getslice__ should always return a list?')
             return sliver
@@ -542,8 +547,11 @@ class Array(object):
                     idxh += 1
                     idxl = idxh
                 elif isinstance(subval, integer_types):
-                    # must infer size ...
-                    raise ValueError('Array .next: don\'t handle integer in tuple')
+                    # must infer size?
+                    setnext(self[idxh], subval)
+                    idxh += 1
+                    idxl = idxh
+#                     raise ValueError('Array .next: don\'t handle integer in tuple')
                 elif isinstance(subval, tuple):
                     raise ValueError('Array .next: don\'t handle tuple(s) in tuple')
                 else:
@@ -579,14 +587,16 @@ class Array(object):
                         return True
                 return False
 
-#         trace.print('Array.driven:', self._name, self._driven, ldriven(self))
-        return self._driven or ldriven(self)
+        trace.print('Array.driven:', repr(self)) #, self._driven, ldriven(self))
+        r = self._driven or ldriven(self)
+#         print(r)
+        return r
 
     @driven.setter
     def driven(self, val):
+#         print('setting ({}).driven to {}'.format(self, val))
         if not val in ("reg", "wire", True):
-            raise ValueError(
-                'Expected value "reg", "wire", or True, got "%s"' % val)
+            raise ValueError('Expected value "reg", "wire", or True, got "%s"' % val)
         self._driven = val
 
     # support for the 'read' attribute
@@ -730,7 +740,7 @@ class Array(object):
         return self
 
     def _fromintbv(self, vector, idx=0, BIGENDIAN=False):
-        ''' 
+        '''
             replace the elements of an Array by SliceSignals
             this is the function doing the work
             and that is called by StructType too
@@ -776,7 +786,7 @@ class Array(object):
         self._isshadow = True
 
     def toVHDL(self):
-        ''' 
+        '''
             emit the VHDL code
             to assign the shadowsignals
         '''
@@ -804,8 +814,9 @@ class Array(object):
         _tovhdl(self, self._name)
         return lines
 
-    def tointbv(self, BIGENDIAN=False):
-        ''' concatenates all elements '''
+    def _collect(self):
+        harvest = []
+
         def collect(obj, _h):
             ''' a local recursive function '''
             if len(obj.shape) == 1:
@@ -821,6 +832,12 @@ class Array(object):
                 for i in range(obj.shape[0]):
                     collect(obj[i], _h)
 
+        collect(self, harvest)
+        return harvest
+
+    def tointbv(self, BIGENDIAN=False):
+        ''' concatenates all elements '''
+
 #         harvest = []
 #         collect(self, harvest)
 #         val = 0
@@ -829,8 +846,7 @@ class Array(object):
 #             val += (val << hh._nrbits) + hh._val
 #         return Signal(intbv(val, _nrbits=self.element._nrbits * len(harvest))
         if self.size > 1:
-            harvest = []
-            collect(self, harvest)
+            harvest = self._collect()
             if not BIGENDIAN:
                 return ConcatSignal(*reversed(harvest))
             else:
@@ -867,12 +883,16 @@ class StructType(object):
         self._isshadow = False
 
         if args and len(args) > 2:
-            self._nrbits = 0
-            self.__class__.__name__ = args[0]
-            self.sequencelist = args[1]
-            for i, key in enumerate(args[1]):
-                setattr(self, key, args[2 + i])
-                self._nrbits += args[2 + i].nbits
+            if isinstance(args[0], StructType):
+                # expecting args[1] to be an initialiser for args[0]
+                pass
+            elif isinstance(args[0], str):
+                self._nrbits = 0
+                self.__class__.__name__ = args[0]
+                self.sequencelist = args[1]
+                for i, key in enumerate(args[1]):
+                    setattr(self, key, args[2 + i])
+                    self._nrbits += args[2 + i].nbits
 
     @property
     def nbits(self):
@@ -900,9 +920,9 @@ class StructType(object):
         # always defined
         return self._nrbits
 
-    def tointbv(self):
-        ''' returns a Signal of the concatenated bits '''
-        self._tisigs = []
+    def _collect(self):
+        ''' collects all elements of a structured type, linearly '''
+        _tisigs = []
 
         def collect(obj):
             ''' using a local routine to do the work '''
@@ -921,29 +941,35 @@ class StructType(object):
                 # must nest structured types
                 if isinstance(item, StructType):
                     #                     trace.print('calling StructType.tointbv()', item)
-                    ati = item.tointbv()
-#                     trace.print(repr(ati))
-                    self._tisigs.append(ati)
+                    ati = item._collect()
+#                     print(repr(ati))
+                    _tisigs.extend(ati)
 #                     self._tisigs.extend(collect(item))
                 elif isinstance(item, Array):
-                    #                     trace.print('calling Array.tointbv()', item)
-                    ati = item.tointbv()
-#                     trace.print(repr(ati))
-                    self._tisigs.append(ati)
+#                     print('calling Array.tointbv()', item)
+                    ati = item._collect()
+#                     print(repr(ati))
+                    _tisigs.extend(ati)
 #                     trace.print('called Array.tointbv()')
 
                 elif isinstance(item, _Signal):
-                    self._tisigs.append(item)
+                    _tisigs.append(item)
+
                 elif isinstance(item, (int, long, str)):
                     pass
                 else:
                     pass
 #             trace.print('collecting', self._tisigs)
-
-#         trace.print('StructType: tointbv', repr(self))
         collect(self)
-#         trace.print('collected', self._tisigs)
-        return ConcatSignal(*reversed(self._tisigs))
+        return _tisigs
+
+    def tointbv(self):
+        ''' returns a Signal of the concatenated bits '''
+#         print('StructType: tointbv', repr(self))
+        tisigs = self._collect()
+#         print('collected', tisigs)
+        # only reverse at the very end
+        return ConcatSignal(*reversed(tisigs))
 
     def fromintbv(self, vector, BIGENDIAN=False):
         ''' split a (large) intbv into a StructType '''
@@ -952,9 +978,9 @@ class StructType(object):
         if self.sequencelist is None:
             raise ValueError('Need a sequencelist to correctly assign StructType members\n{}'.format(repr(self)))
 
-        assert len(vector) == self._nrbits, '{}.fromintbv() needs same number of bits for source and destination'.format(repr(self))
+        assert len(vector) == self.nbits, '{}.fromintbv() needs same number of bits for source and destination'.format(repr(self))
 
-        self._fromintbv(vector, self.nrbits - 1 if BIGENDIAN else 0, BIGENDIAN)
+        self._fromintbv(vector, self.nbits - 1 if BIGENDIAN else 0, BIGENDIAN)
 
         trace.print('end:', repr(self))
         trace.pop()
@@ -974,7 +1000,7 @@ class StructType(object):
                         else:
                             # a bool
                             vars(self)[key] = vector(idx)
-                            idx += 1
+                            idx -= 1
 
                     elif isinstance(obj, Array):
                         #                     trace.print('StructType.fromintbv(): Array', key, repr(obj), obj.nbits)
@@ -1025,15 +1051,17 @@ class StructType(object):
         self._isshadow = True
 
     def toVHDL(self):
-        ''' 
+        '''
             emit the VHDL code
             to assign the shadowsignals
         '''
 #         if not self._isshadow:
 #             raise ValueError('Cannot emit VHDL code for non-shadowed StructType {}'.format(self._name))
 
+#         print('StructType: toVHDL {}', repr(self))
         lines = []
         if self._isshadow:
+#             print('StructType: toVHDL {}', repr(self))
             #         trace.print('Emitting StructType Shadow VHDL code for {}'.format(self._name))
             for key in self.sequencelist:
                 if hasattr(self, key):
@@ -1042,6 +1070,9 @@ class StructType(object):
                         lines.append(obj.toVHDL())
                     elif isinstance(obj, (Array, StructType)):
                         lines.extend(obj.toVHDL())
+                    elif isinstance(obj, integer_types):
+                        pass
+#                         lines.append('{} : integer;'.format(key))
 
         return lines
 
@@ -1057,33 +1088,70 @@ class StructType(object):
         else:
             return self._name + ': ' + rval
 
-    def copy(self):
+    def copy(self, val=None):
         ''' return a new object '''
         # we build a new object
         nobj = StructType()
         # inherit the class name
         nobj.__class__ = self.__class__
-        srcvars = vars(self)
-        for var in srcvars:
-            obj = srcvars[var]
-            if isinstance(obj, _Signal):
-                nobj.__setattr__(var, Signal(obj._val))
-            elif isinstance(obj, (StructType, Array)):
-                nobj.__setattr__(var, obj.copy())
-            elif isinstance(obj, list):
-                # List of anything
-                # presumably Signal, Array, StructType
-                # but anything goes?
-                if len(obj) and isinstance(obj[0], (_Signal, Array, StructType)):
-                    siglist = []
-                    for sig in obj:
-                        siglist.append(sig.copy())
-                    nobj.__setattr__(var, siglist)
+        if val is None:
+            srcvars = vars(self)
+            for var in srcvars:
+                obj = srcvars[var]
+                if isinstance(obj, _Signal):
+                    nobj.__setattr__(var, Signal(obj._val))
+                elif isinstance(obj, (StructType, Array)):
+                    nobj.__setattr__(var, obj.copy())
+                elif isinstance(obj, list):
+                    # List of anything
+                    # presumably Signal, Array, StructType
+                    # but anything goes?
+                    if len(obj) and isinstance(obj[0], (_Signal, Array, StructType)):
+                        siglist = []
+                        for sig in obj:
+                            siglist.append(sig.copy())
+                        nobj.__setattr__(var, siglist)
+                    else:
+                        nobj.__setattr__(var, copy.deepcopy(obj))
                 else:
+                    # fall back for others
                     nobj.__setattr__(var, copy.deepcopy(obj))
+        else:
+            # we have an initialiser
+            # the sequencelist must be there
+            if self.sequencelist is None:
+                raise ValueError('Can only initialise a copy of StructType if sequence of attrs is known')
             else:
-                # fall back for others
-                nobj.__setattr__(var, copy.deepcopy(obj))
+#                 print('.next', self.sequencelist, val, end=' ')
+                # handle the each entry in the sequencelist
+                # first do a few checks
+                assert len(self.sequencelist) == len(val), 'Number of elements in aggregate  tuple don\'t match StructType'
+                idx = 0
+                for key in self.sequencelist:
+                    # must get the type
+                    t = getattr(self, key)
+                    print(key, repr(t))
+                    if isinstance(t, _Signal):
+                        nobj.__setattr__(key, Signal(val[idx]))
+                    elif isinstance(t, (StructType, Array)):
+                        nobj.__setattr__(key, val[idx])
+                    elif isinstance(t, list):
+                        # List of anything
+                        # presumably Signal, Array, StructType
+                        # but anything goes?
+                        if len(t) and isinstance(t[0], (_Signal, Array, StructType)):
+                            siglist = []
+                            for sig in obj:
+                                siglist.append(sig.copy())
+                            nobj.__setattr__(key, siglist)
+                        else:
+                            nobj.__setattr__(key, val[idx])
+                    else:
+                        # fall back for others
+                        nobj.__setattr__(key, val[idx])
+
+                    idx += 1
+
 
         return nobj
 
@@ -1111,7 +1179,7 @@ class StructType(object):
                         retval = ''.join((retval, '_', obj.ref(), '_j'))
 
                     elif isinstance(obj, integer_types):
-                        pass
+                        retval = ''.join((retval, '_i'))
 
                     else:
                         retval = ''.join((retval, '_n'))
@@ -1163,6 +1231,7 @@ class StructType(object):
             if self.sequencelist is None:
                 raise ValueError('Need a well defined order of assignments -> sequencelist')
             else:
+#                 print('.next', self.sequencelist, val, end=' ')
                 # handle the each entry in the sequencelist
                 # first do a few checks
                 assert len(self.sequencelist) == len(val), \
@@ -1172,8 +1241,11 @@ class StructType(object):
                     # do not process the 'None' in the tuple
                     if val[idx] is not None:
                         obj = vars(self)[key]
+#                         print(repr(obj), val[idx], end=' ')
                         obj._setNextVal(val[idx])
+#                         print(repr(obj), end=' ')
                     idx += 1
+#                 print()
 
         elif isinstance(val, integer_types):
             pass
@@ -1209,7 +1281,7 @@ class StructType(object):
         return top
 
     def _update(self):
-        ''' collect the waiters for all object in the current StructType 
+        ''' collect the waiters for all object in the current StructType
             eventually delegating to Signal
         '''
         waiters = []
@@ -1260,10 +1332,7 @@ class StructType(object):
     # support for the 'next' attribute
     @property
     def next(self):
-        #         # must drill down into the list ?
-        #         _siglist.append(self)
-        #         return self._next
-        # this is only a placeholder?
+        # this is only a placeholder
         pass
 
     @next.setter
@@ -1274,16 +1343,18 @@ class StructType(object):
     # support for the 'driven' attribute
     @property
     def driven(self):
+        r= 1 if self._driven else 0
         refs = vars(self)
         for key in refs:
             obj = refs[key]
             if isinstance(obj, _Signal):
                 if obj.driven:
-                    return True
+                    r += 1
             elif isinstance(obj, (Array, StructType)):
                 if obj.driven:
-                    return True
-        return False
+                    r +=1
+#         print('driven?', r, self)
+        return r
     #         return self._driven
 
     @driven.setter

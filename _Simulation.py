@@ -28,6 +28,8 @@ from operator import itemgetter
 from warnings import warn
 from types import GeneratorType
 
+# import numba
+
 from myhdl import Cosimulation, StopSimulation, _SuspendSimulation
 from myhdl import _simulator, SimulationError
 from myhdl._simulator import _signals, _siglist, _futureEvents
@@ -100,7 +102,6 @@ class Simulation(object):
 
         """
 
-#         print(_siglist)
 
         # If the simulation is already finished, raise StopSimulation immediately
         # From this point it will propagate to the caller, that can catch it.
@@ -119,21 +120,23 @@ class Simulation(object):
         tracing = _simulator._tracing
         tracefile = _simulator._tf
         exc = []
-        _pop = waiters.pop
-        _append = waiters.append
-        _extend = waiters.extend
+#         _pop = waiters.pop
+#         _append = waiters.append
+#         _extend = waiters.extend
 
-#         print(_siglist)
-#         print(waiters)
+#         print('_siglist', _siglist)
+#         print('waiters', len(waiters), waiters)
         while 1:
             try:
 
                 for s in _siglist:
-                    _extend(s._update())
+                    waiters.extend(s._update())
                 del _siglist[:]
 
+#                 if waiters:
+#                     print('waiters not empty', len(waiters))
                 while waiters:
-                    waiter = _pop()
+                    waiter = waiters.pop()
 #                     print(repr(waiter))
                     try:
                         waiter.next(waiters, actives, exc)
@@ -162,20 +165,25 @@ class Simulation(object):
                     if t == maxTime:
                         raise _SuspendSimulation(
                             "Simulated %s timesteps" % duration)
+
                     _futureEvents.sort(key=itemgetter(0))
                     t = _simulator._time = _futureEvents[0][0]
                     if tracing:
                         print("#%s" % t, file=tracefile)
+
                     if cosim:
                         cosim._put(t)
+
                     while _futureEvents:
                         newt, event = _futureEvents[0]
                         if newt == t:
                             if isinstance(event, _Waiter):
-                                _append(event)
+                                waiters.append(event)
                             else:
-                                _extend(event.apply())
+                                waiters.extend(event.apply())
+
                             del _futureEvents[0]
+
                         else:
                             break
                 else:
@@ -184,13 +192,16 @@ class Simulation(object):
             except _SuspendSimulation:
                 if not quiet:
                     _printExcInfo()
+
                 if tracing:
                     tracefile.flush()
+
                 return 1
 
             except StopSimulation:
                 if not quiet:
                     _printExcInfo()
+
                 self._finalize()
                 self._finished = True
                 return 0
@@ -198,41 +209,50 @@ class Simulation(object):
             except Exception as e:
                 if tracing:
                     tracefile.flush()
+
                 # if the exception came from a yield, make sure we can resume
                 if exc and e is exc[0]:
                     pass  # don't finalize
                 else:
                     self._finalize()
+
                 # now reraise the exepction
                 raise
-
 
 def _makeWaiters(arglist):
     waiters = []
     ids = set()
     cosim = None
-#     print('_makeWaiters', arglist)
+#     print('_makeWaiters', len(arglist), arglist)
     for arg in arglist:
         if isinstance(arg, GeneratorType):
             waiters.append(_inferWaiter(arg))
+
         elif isinstance(arg, _Instantiator):
             waiters.append(arg.waiter)
+
         elif isinstance(arg, Cosimulation):
             if cosim is not None:
                 raise SimulationError(_error.MultipleCosim)
             cosim = arg
             waiters.append(_SignalTupleWaiter(cosim._waiter()))
+
         elif isinstance(arg, _Waiter):
             waiters.append(arg)
+
         elif arg == True:
             pass
+
         else:
             raise SimulationError(_error.ArgType, str(type(arg)))
+
         if id(arg) in ids:
             raise SimulationError(_error.DuplicatedArg)
+
         ids.add(id(arg))
     # add waiters for shadow signals
     for sig in _signals:
         if hasattr(sig, '_waiter'):
             waiters.append(sig._waiter)
+
     return waiters, cosim

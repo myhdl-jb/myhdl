@@ -75,6 +75,7 @@ def _makeName(n, prefixes):
 
 
 def _analyzeSigs(hierarchy, hdl='Verilog'):
+    trace.push(False, '_analyzeSigs')
     curlevel = 0
     siglist = []
     memlist = []
@@ -143,6 +144,7 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
                 continue
 #             m.name = _makeName(n, prefixes, namedict)
             m.name = _makeName(n, prefixes)
+            trace.print('_analyzeSigs level {}: {} {} {}'.format(level, m.name, n, repr(m)))
             if isinstance(m.mem, (Array, StructType)):
                 m.mem._name = m.name
 #             print(m)
@@ -163,7 +165,7 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
         expandsignalnames(m.mem, m.name, 0, 0, openp, closep)
         trace.pop()
 
-
+    trace.pop()
     return siglist, memlist
 
 
@@ -605,7 +607,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         trace.pop()
 
     def getAttr(self, node):
-        trace.push(None, 'getAttr')
+        trace.push(False, 'getAttr')
         self.visit(node.value)
         node.obj = None
         if isinstance(node.value, ast.Name):
@@ -1102,7 +1104,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             self.refStack.add(n)
 
     def getName(self, node):
-        trace.push(None, 'getName')
+        trace.push(False, 'getName')
         n = node.id
         node.obj = None
         if n not in self.refStack:
@@ -1391,19 +1393,19 @@ class _AnalyzeBlockVisitor(_AnalyzeVisitor):
         self.refStack.pop()
 
     def visit_Module(self, node):
-        trace.push(message='visit_Module')
+        trace.push(False, message='visit_Module {}'.format(node.name))
         trace.print('node, node.body:', node, node.body)
         for t in node.body:
             trace.print(t.name)
         self.generic_visit(node)
         for n in self.tree.outputs:
             s = self.tree.sigdict[n]
-            trace.print('n, s:', repr(n), repr(s))
+            trace.print('n, s:', repr(n), repr(s), s.driven)
             for item in self.tree.sigdict.keys():
-                trace.print(repr(item), repr(self.tree.sigdict[item]), id(self.tree.sigdict[item]))
+                trace.print(' item:', repr(item), repr(self.tree.sigdict[item]), self.tree.sigdict[item].driven, id(self.tree.sigdict[item]))
             if s.driven:
                 var2 = [x for x in globals().values() if id(x) == id(self.tree.sigdict[item])]
-                self.raiseError(node, _error.SigMultipleDriven, '{} {} <> {}'.format(n, self.tree.inputs, var2))
+                self.raiseError(node, _error.SigMultipleDriven, '{}: {} {} <> {}'.format(node.name, n, self.tree.inputs, var2))
             s.driven = "reg"
         for n in self.tree.inputs:
             s = self.tree.sigdict[n]
@@ -1597,7 +1599,7 @@ def expandinterface(v, name, obj):
 
 
 def _analyzeTopFunc(top_inst, func, *args, **kwargs):
-
+    trace.push(False, '_analyzeTopFunc')
     trace.print('_analyzeTopFunc')
     tree = _makeAST(func)
     v = _AnalyzeTopFuncVisitor(func, tree, *args, **kwargs)
@@ -1620,6 +1622,7 @@ def _analyzeTopFunc(top_inst, func, *args, **kwargs):
             # must be an interface object (probably ...?)
             expandinterface(v, name, obj)
 
+    trace.pop()
     return v
 
 
