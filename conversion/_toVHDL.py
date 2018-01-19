@@ -410,6 +410,7 @@ class _ToVHDLConvertor(object):
                 # ideally should do this while giving the names
                 for dp in dummyprefixes:
                     line = line.replace(dp, '')
+#                 line = line.replace('    ', '\t')
                 fo.write(line + '\n')
 
         fi.close()
@@ -657,7 +658,7 @@ def addStructuredPortEntry(stdLogicPorts, pl, portname, portsig):
             portConversions.append("\t%s <= %s(%s);" % (portname, pt, portsig._name))
         else:
             portConversions.append("\t%s <= %s;" % (portname, portsig._name))
-#         portsig._read = True
+        portsig._read = True
     else:
         # default to being read ...
         # we don't support inout ports ...
@@ -667,7 +668,7 @@ def addStructuredPortEntry(stdLogicPorts, pl, portname, portsig):
             portConversions.append("\t%s <= %s(%s);" % (portsig._name, st, portname))
         else:
             portConversions.append("\t%s <= %s;" % (portsig._name, portname))
-#         portsig._driven = True
+        portsig._driven = True
 #     else:
 #         # silently discard neither driven nor read members
 #         trace.print('neither driven nor read?')
@@ -676,17 +677,17 @@ def addStructuredPortEntry(stdLogicPorts, pl, portname, portsig):
 
 def expandStructuredPort(stdLogicPorts, pl, name, obj, conditionally=False, portlist=None, level=-1):
     level += 1
-    print('{0}Expanding {1}\n{0}{2}\n{0}driven: {3}, read: {4}'.format('\t' * level, name, repr(obj), obj.driven, obj._read))
+#     print('{0}Expanding {1}\n{0}{2}\n{0}driven: {3}, read: {4}'.format('\t' * level, name, repr(obj), obj.driven, obj._read))
     if isinstance(obj, StructType):
         for attr, attrobj in vars(obj).items():
-            if isinstance(attrobj, (_Signal, Array, StructType)):
-                attrobj._driven = obj.driven
-                attrobj._read = obj._read
+#             if isinstance(attrobj, (_Signal, Array, StructType)):
+#                 attrobj._driven = obj.driven
+#                 attrobj._read = obj._read
 
             if isinstance(attrobj, _Signal):
-                print('{}Final: {} {}'.format('\t' * level, name, attr))
+#                 print('{}Final: {} {}'.format('\t' * level, name, attr))
                 addStructuredPortEntry(stdLogicPorts, pl, ''.join((name, attr)), attrobj)
-                
+
             elif isinstance(attrobj, StructType):
                 if conditionally:
                     if len(attrobj.reversedirections) == 0:
@@ -696,15 +697,15 @@ def expandStructuredPort(stdLogicPorts, pl, name, obj, conditionally=False, port
                         expandStructuredPort(stdLogicPorts, pl, name + attr, attrobj,
                                              conditionally=conditionally, portlist=portlist, level=level)
                 else:
-                    print('{}Expanding StructType: {} {}'.format( '\t' * level, name, attr))
+#                     print('{}Expanding StructType: {} {}'.format( '\t' * level, name, attr))
                     expandStructuredPort(stdLogicPorts, pl, name + attr, attrobj, level=level)
-                    
+
             elif isinstance(attrobj, Array):
                 if conditionally:
                     addstructuredport(stdLogicPorts, pl, name + attr, attrobj, portconversion=True)
                     portlist.append(attrobj)
                 else:
-                    print('{}Expanding Array: {} {}'.format( '\t' * level, name, attr))
+#                     print('{}Expanding Array: {} {}'.format( '\t' * level, name, attr))
                     expandStructuredPort(stdLogicPorts, pl, name + attr, attrobj, level=level)
             # else EnumItemType, int, str, ...
 
@@ -735,7 +736,7 @@ def addstructuredport(stdLogicPorts, pl, portname, port, portconversion=False):
         pl.append("\n\t\t{} : out {};".format(portname, port.ref()))
         if portconversion:
             portConversions.append("\t{} <= {};".format(portname, port._name))
-#         port._read = True
+        port._read = True
     else:
         # default to being read ...
         # we don't support inout ports ...
@@ -744,7 +745,7 @@ def addstructuredport(stdLogicPorts, pl, portname, port, portconversion=False):
         if portconversion:
             portConversions.append("\t{} <= {};".format(port._name, portname))
         port._read = True
-#         port.driven = True
+        port.driven = True
 
 
 def _writeFuncDecls():

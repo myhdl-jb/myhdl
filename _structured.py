@@ -420,7 +420,7 @@ class Array(object):
         sliver = self._array.__getslice__(*args, **kwargs)
 #         trace.print('sliver', sliver)
         if isinstance(sliver, list):
-            print('__getslice__: sliver:', repr(sliver))
+#             print('__getslice__: sliver:', repr(sliver))
             return Array(sliver, None)
         else:
             #             trace.print('__getslice__ should always return a list?')
@@ -488,6 +488,29 @@ class Array(object):
             pass
 
         return self
+
+    def __or__(self, other):
+        # assume other is same shape
+        def getvals(tobj, oobj, rval):
+            ''' a recursive routine '''
+            if isinstance(tobj[0], (list, Array)):
+                for titem, oitem in zip(tobj, oobj):
+                    rrval = []
+                    getvals(titem, oitem, rrval)
+                    rval.append(rrval)
+            else:
+                if isinstance(self.element, _Signal):
+                    for titem, oitem in zip(tobj, oobj):
+                        # this will work for both intbv and bool
+                        # what about fixbv?
+                        rval.append(int(titem.val) | int(oitem.val))
+                elif isinstance(self.element, StructType):
+                    for titem, oitem in zip(tobj, oobj):
+                        rval.append(titem.val | oitem.val)
+
+        rval = []
+        getvals(self, other, rval)
+        return rval
 
     # support for the 'val' attribute
     @property
@@ -1049,6 +1072,7 @@ class StructType(object):
                         pass
 
         self._isshadow = True
+        self._driven = 'wire'
 
     def toVHDL(self):
         '''
@@ -1343,18 +1367,19 @@ class StructType(object):
     # support for the 'driven' attribute
     @property
     def driven(self):
-        r= 1 if self._driven else 0
+        if self._driven:
+            return self._driven
         refs = vars(self)
         for key in refs:
             obj = refs[key]
             if isinstance(obj, _Signal):
                 if obj.driven:
-                    r += 1
+                    return obj.driven
             elif isinstance(obj, (Array, StructType)):
                 if obj.driven:
-                    r +=1
+                    return obj.driven
 #         print('driven?', r, self)
-        return r
+        return False
     #         return self._driven
 
     @driven.setter
