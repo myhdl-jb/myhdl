@@ -57,54 +57,104 @@ __version__ = "1.0dev-jb"
 import sys
 import warnings
 
+
+
 class StopSimulation(Exception):
     """ Basic exception to stop a Simulation """
     pass
+
+
 
 class _SuspendSimulation(Exception):
     """ Basic exception to suspend a Simulation """
     pass
 
+
+
 class Error(Exception):
+
+
     def __init__(self, kind, msg="", info=""):
         self.kind = kind
         self.msg = msg
         self.info = info
+
+
     def __str__(self):
         s = "%s%s" % (self.info, self.kind)
         if self.msg:
             s += ": %s" % self.msg
         return s
 
+
+
 class AlwaysError(Error):
     pass
+
+
+
 class AlwaysCombError(Error):
     pass
+
+
+
 class InstanceError(Error):
     pass
+
+
+
 class CosimulationError(Error):
     pass
+
+
+
 class ExtractHierarchyError(Error):
     pass
+
+
+
 class SimulationError(Error):
     pass
+
+
+
 # class ToVerilogError(Error):
 #     pass
 class TraceSignalsError(Error):
     pass
+
+
+
 class ConversionError(Error):
     pass
+
+
+
 class ToVerilogError(ConversionError):
     pass
+
+
+
 class ToVHDLError(ConversionError):
     pass
 
+
+
 class ConversionWarning(UserWarning):
     pass
+
+
+
 class ToVerilogWarning(ConversionWarning):
     pass
+
+
+
 class ToVHDLWarning(ConversionWarning):
     pass
+
+
+
 # warnings.filterwarnings('always', r".*", ToVerilogWarning)
 class bcolors:
     HEADER = '\033[95m'
@@ -115,12 +165,15 @@ class bcolors:
     ENDC = '\033[0m'
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
-    
+
+
+
 def showwarning(message, category, filename, lineno, *args):
     print("%s** %s: %s%s" % (bcolors.OKBLUE, category.__name__, message, bcolors.ENDC), file=sys.stdout)
 
-warnings.showwarning = showwarning
 
+
+warnings.showwarning = showwarning
 
 from ._bin import bin
 from ._concat import concat
@@ -134,19 +187,18 @@ from ._simulator import now
 from ._delay import delay
 from ._Cosimulation import Cosimulation
 from ._Simulation import Simulation
-from ._misc import rtlinstances, instances, downrange #, rtlinstance
+from ._misc import rtlinstances, instances, downrange  # , rtlinstance
 from ._always_comb import always_comb
 from ._always_seq import always_seq, ResetSignal
 from ._always import always
 from ._instance import instance
 from ._enum import enum, EnumType, EnumItemType
-from ._traceSignals import traceSignals
+from ._traceSignals import traceSignals, _TraceSignalsClass
 from myhdl import conversion
 from .conversion import toVerilog
 from .conversion import toVHDL
 from ._structured import Array, StructType
 from ._tristate import Tristate
-
 
 __all__ = ["bin",
            "concat",
@@ -175,6 +227,7 @@ __all__ = ["bin",
            "EnumType",
            "EnumItemType",
            "traceSignals",
+           "_TraceSignalsClass",
            "toVerilog",
            "toVHDL",
            "conversion",
@@ -184,6 +237,4 @@ __all__ = ["bin",
            "rtlinstances",
 #            "rtlinstance"
            ]
-
-
 
