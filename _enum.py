@@ -22,7 +22,6 @@
 """
 from __future__ import absolute_import
 
-
 from myhdl._bin import bin
 from myhdl._Signal import _Signal
 from myhdl._compat import string_types
@@ -38,6 +37,7 @@ class EnumItemType(object):
 
     def __init__(self):
         raise TypeError("class EnumItemType is only intended for type checking on subclasses")
+
 
 supported_encodings = ("binary", "one_hot", "one_cold", "user")
 
@@ -203,9 +203,9 @@ def enum(*names, **kwargs):
             if self._encoding == 'user':
                 return "-- User encoded enum are not usable\n"
             typename = self.__dict__['_name']
-            vstr = "    type %s is (\n        " % typename
-            vstr += ",\n        ".join(self._names)
-            vstr += "\n        );"
+            vstr = "    type %s is (\n\t\t" % typename
+            vstr += ",\n\t\t".join(self._names)
+            vstr += "\n\t\t);"
             if self._encoding is not None:
                 codes = " ".join([self._codedict[name] for name in self._names])
                 vstr += '\nattribute enum_encoding of %s: type is "%s";' % (typename, codes)

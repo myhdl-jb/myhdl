@@ -1463,8 +1463,9 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         assert hasattr(node, 'doc')
         doc = _makeDoc(node.doc, self.ind)
         trace.print('<', doc, '>')
-        self.write(doc)
-        self.writeline()
+        if doc:
+            self.write(doc)
+            self.writeline()
 
     def IntRepr(self, obj):
         if obj >= 0:
@@ -2927,7 +2928,7 @@ class _ConvertSimpleAlwaysCombVisitor(_ConvertVisitor):
         trace.print(node)
         self.writeDoc(node)
         self.visit_stmt(node.body)
-        self.writeline(2)
+#         self.writeline(2)
 
 
 class _ConvertAlwaysDecoVisitor(_ConvertVisitor):
