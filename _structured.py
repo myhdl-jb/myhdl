@@ -327,7 +327,7 @@ class Array(object):
                 raise ValueError(
                     "Shape: {} of array is undefined".format(shape))
 
-            self._nrbits = (self.size * self.element._nrbits) \
+            self._nrbits = (self.size * self.element.nbits) \
                 if not isinstance(self.element, bool) else self.size
 
     def _update(self):

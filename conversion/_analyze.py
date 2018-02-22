@@ -119,7 +119,6 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
                 trace.print(' skipping ShadowSignals')
                 continue
 
-
 #             s._name = _makeName(n, prefixes, namedict)
             s._name = _makeName(n, prefixes)
             s._namelevel = level
@@ -150,8 +149,6 @@ def _analyzeSigs(hierarchy, hdl='Verilog'):
 #             print(m)
             memlist.append(m)
 #             trace.print('_analyzeSigs {} {} {} memlist.append({})'.format(level, prefixes, n, repr(m)))
-
-
 
     # handle the case where a named signal appears in a list also by giving
     # priority to the list and marking the signals as unused
@@ -895,7 +892,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             trace.pop()
         else:
             debug_info = [e for e in ast.iter_fields(node.func)]
-            raise AssertionError("Unexpected callable %s, you probably have use a non convertible math-function?" % str(debug_info))
+            raise AssertionError("Unexpected callable %s, you probably have used a non convertible math-function?" % str(debug_info))
         if argsAreInputs:
             for arg in node.args:
                 self.visit(arg)
