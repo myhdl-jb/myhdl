@@ -23,7 +23,6 @@
 from __future__ import absolute_import
 from __future__ import print_function
 
-
 import sys
 import math
 import os
@@ -58,7 +57,6 @@ from myhdl._ShadowSignal import _TristateSignal, _TristateDriver
 from myhdl._misc import m1Dinfo
 from myhdl._structured import Array, StructType
 # from myhdl._ShadowSignal import ConcatSignal
-
 
 from myhdl.tracejb import Tracing
 
@@ -332,7 +330,7 @@ class _ToVHDLConvertor(object):
         headerlines = _writeModuleHeader(intf, needPck, lib, useClauses)
         entitylines, portlist = _writeEntity(intf, needPck, lib, arch, useClauses, doc,
                                    stdLogicPorts, siglist, self.standard,
-                                   self.structured_ports )
+                                   self.structured_ports)
 #         print('-----------------------------')
 #         for port in portlist:
 #             print(port)
@@ -791,7 +789,7 @@ def expandconstant(c):
                         s = ''.join((s, ' to_{}signed( {}, {} ){}'.format(
                             '' if obj._min < 0 else 'un', obj, obj._nrbits, ', ')))
                 elif isinstance(obj, integer_types):
-                    s = ''.join((s, '{}, '.format(obj) ))
+                    s = ''.join((s, '{}, '.format(obj)))
 
             elif isinstance(obj, Array):
                 s = ''.join((s, '({})'.format(expandconstant(obj))))
@@ -869,7 +867,6 @@ def expandarray(c):
         return s[:-2]
 
 
-
 def addstructuredtypedef(obj, targetlist, otherlist=None):
     ''' adds the typedefs for a StructType
         possibly descending down
@@ -910,7 +907,6 @@ def addstructuredtypedef(obj, targetlist, otherlist=None):
             elif isinstance(mobj, integer_types):
                 pass
 #                 entries.append("\t\t{} : integer;\n".format(key))
-
 
         # align-format the contents
 #         for line in sortalign(entries, sort=False):
@@ -966,6 +962,7 @@ def updatedrivenread(memlist, portlist):
             trace.pop()
             trace.print('\tinferred: driven: {:4} read: {:4}'.format(m.driven, m._read))
     trace.pop()
+
 
 def _writeTypeDefs(memlist):
     lines = []
@@ -1407,7 +1404,11 @@ def _convertGens(genlist, siglist, memlist, lines):
 
 
 opmap = {
+
+
     ast.Add: '+',
+
+
     ast.Sub: '-',
     ast.Mult: '*',
     ast.Div: '/',
@@ -1462,8 +1463,9 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         assert hasattr(node, 'doc')
         doc = _makeDoc(node.doc, self.ind)
         trace.print('<', doc, '>')
-        self.write(doc)
-        self.writeline()
+        if doc:
+            self.write(doc)
+            self.writeline()
 
     def IntRepr(self, obj):
         if obj >= 0:
@@ -2844,6 +2846,7 @@ class _ConvertAlwaysCombVisitor(_ConvertVisitor):
         self.funcBuf = funcBuf
 
     def visit_FunctionDef(self, node):
+
         # a local function works nicely too
         def compressSensitivityList(senslist):
             ''' reduce spelled out list items like [*name*(0), *name*(1), ..., *name*(n)] to just *name*
@@ -2918,7 +2921,7 @@ class _ConvertSimpleAlwaysCombVisitor(_ConvertVisitor):
         trace.print(node)
         self.writeDoc(node)
         self.visit_stmt(node.body)
-        self.writeline(2)
+#         self.writeline(2)
 
 
 class _ConvertAlwaysDecoVisitor(_ConvertVisitor):
@@ -3160,7 +3163,6 @@ class _ConvertTaskVisitor(_ConvertVisitor):
         self.write("end procedure %s;" % self.tree.name)
         self.writeline(2)
 
-
 # type inference
 
 
@@ -3270,6 +3272,7 @@ class vhd_array(vhd_type):
 
 
 class vhd_structtype(vhd_type):
+
     def __init__(self):
         vhd_type.__init__(self)
 
