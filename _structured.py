@@ -37,6 +37,7 @@ from myhdl._compat import integer_types
 from myhdl._ShadowSignal import ConcatSignal, _ShadowSignal
 from myhdl._misc import m1Dinfo
 from myhdl._enum import EnumItemType
+# from myhdl._util import _flatten
 
 from myhdl.tracejb import Tracing
 
@@ -331,6 +332,7 @@ class Array(object):
                 if not isinstance(self.element, bool) else self.size
 
     def _update(self):
+
         def collectwaiters(obj, waiterlist):
             ''' a local recursive function to collect the 'waiters' '''
             if isinstance(obj[0], (list, Array)):
@@ -490,6 +492,7 @@ class Array(object):
         return self
 
     def __or__(self, other):
+
         # assume other is same shape
         def getvals(tobj, oobj, rval):
             ''' a recursive routine '''
@@ -516,6 +519,7 @@ class Array(object):
     @property
     def val(self):
         ''' produce a multi-dimensional list of the value of the elements '''
+
         def getvals(obj, rval):
             ''' a recursive routine '''
             if isinstance(obj[0], (list, Array)):
@@ -595,6 +599,7 @@ class Array(object):
     # support for the 'driven' attribute
     @property
     def driven(self):
+
         def ldriven(obj):
             ''' a local function to do the work, recursively '''
             if isinstance(self.element, intbv):
@@ -610,7 +615,7 @@ class Array(object):
                         return True
                 return False
 
-        trace.print('Array.driven:', repr(self)) #, self._driven, ldriven(self))
+        trace.print('Array.driven:', repr(self))  # , self._driven, ldriven(self))
         r = self._driven or ldriven(self)
 #         print(r)
         return r
@@ -665,6 +670,7 @@ class Array(object):
         ''' build a new Array
             making it from (possibly) sliced signals
         '''
+
         # need a local recursive function
         def makenext(obj, top):
             ''' a local function to do the work, recursively '''
@@ -725,17 +731,49 @@ class Array(object):
             else:
                 raise ValueError('Can only slice Signals (for now) <> {}'.format(repr(self.element)))
 
+    def _flatten(self):
 
-    def reshape(self, shape):
+        def __flatten(obj, dst):
+            if len(obj.shape) > 1:
+                for item in obj._array:
+                    __flatten(item, dst)
+            else:
+                dst.extend(obj._array)
+
+        tlist = []
+        __flatten(self, tlist)
+#         print(tlist)
+        return tlist
+
+    def reshape(self, newshape):
         ''' returns a Shadow Array '''
+
         def product(shape):
             if len(shape) == 1:
                 return shape[0]
             else:
                 return shape[0] * product(shape[1:])
-        todo = product(shape)
-        assert self.size == todo, '{}.reshape({}) doesn\'t match the total number size'
 
+        def populate(src, idx, dst):
+            if len(dst.shape) == 1:
+                for i in range(dst.shape[0]):
+                    dst._array[i] = src[idx]
+                    idx += 1
+
+            else:
+                for i in range(dst.shape[0]):
+                    populate(src, idx, dst[i])
+
+        todo = product(newshape)
+        assert self.size == todo, '{}.reshape({}) doesn\'t match the total number size'.format(self.shape, newshape)
+        # make a one dimensional list of all elements
+        tlist = self._flatten()
+        # must repick
+        # make an empty array
+        r = Array(tuple(newshape), self.element)
+        populate(tlist, 0, r)
+#         print(r)
+        return r
 
     def transform(self, shape, width, BIGENDIAN=False):
         ''' returns a Shadow Array '''
@@ -768,6 +806,7 @@ class Array(object):
             this is the function doing the work
             and that is called by StructType too
         '''
+
         # a local function
         def _toA(a, _o, _be):
             ''' a local recursive function '''
@@ -982,6 +1021,7 @@ class StructType(object):
                     pass
                 else:
                     pass
+
 #             trace.print('collecting', self._tisigs)
         collect(self)
         return _tisigs
@@ -1175,7 +1215,6 @@ class StructType(object):
                         nobj.__setattr__(key, val[idx])
 
                     idx += 1
-
 
         return nobj
 
