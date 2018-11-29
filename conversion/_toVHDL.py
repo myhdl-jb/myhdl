@@ -1484,6 +1484,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 pass
             elif not isinstance(ori, vhd_int):
                 pre, suf = "to_integer(", ")"
+
         elif isinstance(vhd, vhd_unsigned):
             if isinstance(ori, vhd_unsigned):
                 if vhd.size != ori.size:
@@ -1498,8 +1499,14 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             elif isinstance(ori, vhd_array):
                 pass
             else:
-                #                 trace.print('?')
-                pre, suf = "to_unsigned(", ", %s)" % vhd.size
+                if isinstance(ori, vhd_enum):
+#                     print(repr(vhd), repr(ori))
+                    assert vhd.size >= ori.size
+                    pre, suf = "to_unsigned({}'pos(".format(ori.toStr()), "), %s)" % vhd.size
+                else:
+                    #                 trace.print('?')
+                    pre, suf = "to_unsigned(", ", %s)" % vhd.size
+
         elif isinstance(vhd, vhd_signed):
             if isinstance(ori, vhd_signed):
                 if vhd.size != ori.size:
@@ -1516,20 +1523,25 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                 pass
             else:
                 pre, suf = "to_signed(", ", %s)" % vhd.size
+
         elif isinstance(vhd, vhd_boolean):
+#             if not isinstance(ori, (vhd_boolean, vhd_std_logic)):
             if not isinstance(ori, vhd_boolean):
                 pre, suf = "bool(", ")"
 # pre, suf = "(", " = '1')" # purer VHDL? but fails several 'conversion
 # tests'
+
         elif isinstance(vhd, vhd_std_logic):
             if not isinstance(ori, vhd_std_logic):
                 if isinstance(ori, vhd_unsigned):
                     pre, suf = "", "(0)"
                 else:
                     pre, suf = "stdl(", ")"
+
         elif isinstance(vhd, vhd_string):
             if isinstance(ori, vhd_enum):
                 pre, suf = "%s'image(" % ori._type._name, ")"
+
         elif isinstance(vhd, vhd_enum):
             if not isinstance(ori, vhd_enum):
                 if isinstance(ori, integer_types):
@@ -1538,6 +1550,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
                     pre, suf = "%s'val(to_integer(" % vhd._type._name, "))"
                 else:
                     raise ConversionWarning('cannot assign enumvalue')
+
 
         elif isinstance(vhd, vhd_array):
             trace.print('vhd_array', repr(vhd))

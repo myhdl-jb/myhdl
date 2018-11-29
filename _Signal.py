@@ -38,7 +38,7 @@ from myhdl import _simulator as sim
 from myhdl._simulator import _signals, _siglist, _futureEvents, now
 from myhdl._intbv import intbv
 from myhdl._bin import bin
-# from myhdl._enum import EnumItemType
+# from myhdl._enum import EnumType
 
 _schedule = _futureEvents.append
 
@@ -339,11 +339,14 @@ class _Signal(object):
     def _setNextIntbv(self, val):
         if isinstance(val, integer_types):
             lval = val
+
         elif isinstance(val, intbv):
             lval = val._val
+
         elif isinstance(val, string_types):
             mval = val.replace('_', '')
             lval = long(mval, 2)
+
         elif isinstance(val, tuple):
             # tuple assignment in  stead of 'concat'
             #             print('Signal: Tuple Assignment')
@@ -367,7 +370,12 @@ class _Signal(object):
                         # bool
                         lval <<= 1
                         lval += 1 if v else 0
+
 #         elif not isinstance(val, integer_types):
+
+        elif isinstance(val, EnumItemType):
+            lval = int(val)
+
         else:
             raise TypeError("Expected int or intbv, got %s" % type(val))
         self._next._val = lval
@@ -786,3 +794,4 @@ SignalType = _Signal
 from myhdl._ShadowSignal import _SliceSignal, _IndexSignal, _CloneSignal, _ReverseSignal
 from myhdl._Waiter import _SignalWaiter
 from myhdl._enum import EnumItemType
+# from myhdl._enum import EnumType
