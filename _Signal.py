@@ -40,7 +40,6 @@ from myhdl._intbv import intbv
 from myhdl._bin import bin
 # from myhdl._enum import EnumItemType
 
-
 _schedule = _futureEvents.append
 
 
@@ -124,7 +123,7 @@ class _Signal(object):
                  '_setNextVal', '_copyVal2Next', '_printVcd',
                  '_driven', '_read', '_name', '_used', '_inList',
                  '_waiter', 'toVHDL', 'toVerilog', '_slicesigs',
-                 '_suppresswarning', '_namelevel'
+                 '_suppresswarning', '_namelevel', '_attribute'
                  )
 
     def __init__(self, val=None):
@@ -143,6 +142,7 @@ class _Signal(object):
         self._used = False
         self._inList = False
         self._nrbits = 0
+        self._attribute = None
         self._printVcd = self._printVcdStr
         self._suppresswarning = False
         if isinstance(val, bool):
@@ -776,6 +776,7 @@ class _SignalWrap(object):
 
     def apply(self):
         return self.sig._apply(self.next, self.timeStamp)
+
 
 # for export
 SignalType = _Signal
