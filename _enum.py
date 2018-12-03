@@ -66,7 +66,8 @@ def enum(*names, **kwargs):
         lnames = names
         if encoding in ("one_hot", "one_cold"):
             nrbits = len(names)
-        else:  # binary as default
+        else:
+            # binary as default
             nrbits = len(bin(len(names) - 1))
 
         for name in names:
@@ -183,6 +184,9 @@ def enum(*names, **kwargs):
             return "<Enum: [{}] {}>".format(self.__dict__['_encoding'], ", ".join(names))
 
         __str__ = __repr__
+
+        def make(self, val):
+            pass
 
         def __eq__(self, other):
             if (self.__dict__['_nritems'] != other.__dict__['_nritems']) \

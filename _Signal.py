@@ -383,9 +383,16 @@ class _Signal(object):
         self._next._handleBounds()
 
     def _setNextNonmutable(self, val):
-        if not isinstance(val, self._type):
+#         if not isinstance(val, self._type):
+#             raise TypeError("Expected %s, got %s" % (self._type, type(val)))
+#         self._next = val
+        if isinstance(val, self._type):
+            self._next = val
+        elif isinstance(val, intbv):
+            # do some hocuspocus
+            self._next = self._type.make(val)
+        else:
             raise TypeError("Expected %s, got %s" % (self._type, type(val)))
-        self._next = val
 
     def _setNextMutable(self, val):
         if not isinstance(val, self._type):
