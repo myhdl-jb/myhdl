@@ -819,7 +819,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             if f.__code__.co_freevars:
                 for n, c in zip(f.__code__.co_freevars, f.__closure__):
                     obj = c.cell_contents
-                    if not isinstance(obj, (integer_types, _Signal)):
+                    if not isinstance(obj, (integer_types, _Signal, StructType)):
                         self.raiseError(node, _error.FreeVarTypeError, n)
                     tree.symdict[n] = obj
 #                     logjb( tree.symdict, 'tree.symdict')
