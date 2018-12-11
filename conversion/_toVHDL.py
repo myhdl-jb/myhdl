@@ -39,7 +39,8 @@ from copy import copy
 import string
 
 import myhdl
-from myhdl import intbv, EnumItemType, EnumType, modbv, delay, posedge, negedge, concat, now, downrange, bin
+from myhdl import intbv, EnumItemType, EnumType, modbv, delay, posedge, negedge, concat, now, downrange, bin, \
+    ConversionWarning
 from myhdl import ToVHDLError, ToVHDLWarning
 from myhdl._extractHierarchy import (_HierExtr, _isMem, _getMemInfo,
                                      _UserVhdlCode, _userCodeMap)
@@ -1405,9 +1406,7 @@ def _convertGens(genlist, siglist, memlist, lines):
 
 opmap = {
 
-
     ast.Add: '+',
-
 
     ast.Sub: '-',
     ast.Mult: '*',
@@ -1545,7 +1544,13 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
 
         elif isinstance(vhd, vhd_enum):
             if not isinstance(ori, vhd_enum):
-                pre, suf = "%s'pos(" % vhd._type._name, ")"
+                if isinstance(ori, integer_types):
+                    pre, suf = "%s'val(" % vhd._type._name, ")"
+                elif isinstance(ori, vhd_unsigned):
+                    pre, suf = "%s'val(to_integer(" % vhd._type._name, "))"
+                else:
+                    raise ConversionWarning('cannot assign enumvalue')
+
 
         elif isinstance(vhd, vhd_array):
             trace.print('vhd_array', repr(vhd))

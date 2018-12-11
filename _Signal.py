@@ -123,7 +123,7 @@ class _Signal(object):
                  '_setNextVal', '_copyVal2Next', '_printVcd',
                  '_driven', '_read', '_name', '_used', '_inList',
                  '_waiter', 'toVHDL', 'toVerilog', '_slicesigs',
-                 '_suppresswarning', '_namelevel'
+                 '_suppresswarning', '_namelevel', '_attribute'
                  )
 
     def __init__(self, val=None):
@@ -142,6 +142,7 @@ class _Signal(object):
         self._used = False
         self._inList = False
         self._nrbits = 0
+        self._attribute = None
         self._printVcd = self._printVcdStr
         self._suppresswarning = False
         if isinstance(val, bool):
@@ -382,9 +383,16 @@ class _Signal(object):
         self._next._handleBounds()
 
     def _setNextNonmutable(self, val):
-        if not isinstance(val, self._type):
+#         if not isinstance(val, self._type):
+#             raise TypeError("Expected %s, got %s" % (self._type, type(val)))
+#         self._next = val
+        if isinstance(val, self._type):
+            self._next = val
+        elif isinstance(val, intbv):
+            # do some hocuspocus
+            self._next = self._type.make(val)
+        else:
             raise TypeError("Expected %s, got %s" % (self._type, type(val)))
-        self._next = val
 
     def _setNextMutable(self, val):
         if not isinstance(val, self._type):
